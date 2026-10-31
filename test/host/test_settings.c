@@ -16,7 +16,6 @@ static void defaults(void) {
     T_EQ_INT(s.rename, true);
     T_EQ_INT(s.lang, NM_LANG_EN);
     T_EQ_INT(s.auto_refresh, true);
-    T_EQ_INT(s.update_check, true);
     T_EQ_INT(s.tz_min, 0);
     T_CHECK(!s.pw_set);
     T_EQ_STR(s.wifi_ssid, "");
@@ -32,7 +31,6 @@ static void stored_value_wins(void) {
     settings_load(&s);
     T_EQ_INT(s.rename, false);
     T_EQ_INT(s.auto_refresh, false);
-    T_EQ_INT(s.update_check, true);            /* untouched keys keep the default */
 }
 
 static void round_trip(void) {

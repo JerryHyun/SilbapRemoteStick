@@ -5,7 +5,7 @@ full license text into `licenses/` when its code or data is first added.
 
 | Component | Use | License |
 |---|---|---|
-| [MainasuK/RemoteUSB](https://github.com/MainasuK/RemoteUSB) | base firmware: web UI, WebDAV, OTA, LCD, LED; the WebDAV server at /dav (main/webdav.c, main/webdav_xml.c) was adapted from its main/webdav.c and rewritten for this firmware; main/esp_lcd_st7735.c/.h are LilyGO's T-Dongle-S3 factory ST7735 panel driver, vendored unchanged from its main/ ([licenses/RemoteUSB-MIT.txt](licenses/RemoteUSB-MIT.txt)) | MIT |
+| [MainasuK/RemoteUSB](https://github.com/MainasuK/RemoteUSB) | base firmware: web UI, WebDAV, LCD, LED; the WebDAV server at /dav (main/webdav.c, main/webdav_xml.c) was adapted from its main/webdav.c and rewritten for this firmware; main/esp_lcd_st7735.c/.h are LilyGO's T-Dongle-S3 factory ST7735 panel driver, vendored unchanged from its main/ ([licenses/RemoteUSB-MIT.txt](licenses/RemoteUSB-MIT.txt)) | MIT |
 | [robbellie/embroidery-stick](https://github.com/robbellie/embroidery-stick) | ideas and adapted code: virtual FAT, captive portal, Web Tools layout | MIT |
 | [ESP-IDF](https://github.com/espressif/esp-idf), esp_tinyusb, mdns | framework and components | Apache-2.0 |
 | [TinyUSB](https://github.com/hathach/tinyusb) | USB stack | MIT |

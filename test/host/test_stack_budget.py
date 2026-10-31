@@ -14,7 +14,7 @@ What it does NOT catch:
   * totals: ten 900-byte locals in one function sum to 9 KiB and still pass;
   * struct members (webdav.c's dav_t is a struct, deliberately heap-allocated);
   * callee frames on top of the handler (httpd_resp_send, esp_log, FatFs ...);
-  * the other tasks (refresh 8192, dns53 4096, ota-check 4096) -- only the httpd stack matters here.
+  * the other tasks (refresh 8192, dns53 4096) -- only the httpd stack matters here.
 
 Sizes are resolved from integer literals and `#define NAME <expression>` in main/ or a component
 include dir, and simple arithmetic of those. A `sizeof`, a pointer cast or a length taken from a

@@ -23,10 +23,6 @@ void web_unroute(const char *uri, httpd_method_t m);
 /* True once web_start() has a running server. */
 bool web_started(void);
 
-/* True when a route with this uri and method is registered right now. web_route() only logs a failure (no server,
- * full table, httpd error), so a subsystem with more than one route uses this to report "my routes are missing". */
-bool web_route_registered(const char *uri, httpd_method_t m);
-
 /* Runs fn(arg) in the HTTP server task (httpd_queue_work), so a route-table change never races a dispatch. Returns
  * ESP_ERR_INVALID_STATE when the server is not running yet. */
 esp_err_t web_run_in_server(void (*fn)(void *), void *arg);

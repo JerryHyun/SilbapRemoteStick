@@ -33,6 +33,3 @@ void refresh_prepare_sd(void);
 /* Forgets the LED colour refresh last set, so its idle loop paints it again within a tick (after the web API
  * showed purple during an upload that ended without a refresh). */
 void refresh_led_reset(void);
-/* Reserves the LED for a fault that lasts until the next boot: refresh paints it white from now on and ignores its
- * own busy/idle/read colours. Used when an OTA self-check failed and the rollback could not run. */
-void refresh_led_fault(void);

@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "settings.h"
 
-/* Merges the known keys of a flat JSON object into s: rename, update_check, auto_refresh (booleans), lang and
+/* Merges the known keys of a flat JSON object into s: rename and auto_refresh (booleans), lang and
  * ui_lang ("ko"/"en"/"zh"/"ja"), media ("sense"/"replug"), tz_min (integer, -840..840). Unknown keys (including
  * any password key) are ignored. Nothing is changed when 0 is not returned. Only the touched fields are written,
  * one by one, so the password fields are never copied over. *needs_rebuild is set (never cleared) when rename or

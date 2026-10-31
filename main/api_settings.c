@@ -12,7 +12,6 @@
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
 #include "netif.h"
-#include "ota.h"
 #include "refresh.h"
 #include "sdcard.h"
 #include "setupfile.h"
@@ -90,10 +89,7 @@ static esp_err_t status_get(httpd_req_t *req) {
     wc_json_bool(&w, "low_power", net_low_power());
     wc_json_bool(&w, "time_synced", timekeep_synced());
     wc_json_bool(&w, "pw_set", s_set->pw_set);
-    wc_json_bool(&w, "pw_at_boot", ota_pw_at_boot());
     wc_json_bool(&w, "setup_applied", setup_apply_took_effect());
-    wc_json_bool(&w, "selfcheck_failed", ota_selfcheck_failed());
-    wc_json_num(&w, "ota_max", (int64_t)ota_max_image());
     wc_json_str(&w, "ui_lang", s_set->ui_lang);
     wc_json_obj_close(&w);
     return send_obj(req, &w);
@@ -108,7 +104,6 @@ static esp_err_t send_settings(httpd_req_t *req) {
     wc_json_str(&w, "lang", LANG_NAME[s_set->lang & 3]);
     wc_json_str(&w, "ui_lang", s_set->ui_lang);
     wc_json_bool(&w, "auto_refresh", s_set->auto_refresh);
-    wc_json_bool(&w, "update_check", s_set->update_check);
     wc_json_num(&w, "tz_min", s_set->tz_min);
     wc_json_str(&w, "wifi_ssid", s_set->wifi_ssid);
     wc_json_obj_close(&w);

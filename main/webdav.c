@@ -4,8 +4,8 @@
  * Adapted from MainasuK/RemoteUSB main/webdav.c
  * Copyright (c) 2026 MainasuK. MIT License: licenses/RemoteUSB-MIT.txt
  *
- * Changes for SilbapRemoteStick: served below /dav instead of the root; RemoteUSB's Basic auth, OTA upload, status
- * page and HTML browser listing are removed (the web middleware does Host/Origin/auth, Task 12 does OTA, the SPA is
+ * Changes for SilbapRemoteStick: served below /dav instead of the root; RemoteUSB's Basic auth, firmware upload,
+ * status page and HTML browser listing are removed (the web middleware does Host/Origin/auth, the SPA is
  * the browser UI); every path goes through dav_rel (wc_norm_path + SD-safe names, so ".silbap*" is unreachable and
  * never listed); every mutation goes through fsops (close-before-mutate; PUT and COPY stream into a temp file and
  * are renamed into place); PROPFIND answers Depth 0/1 only (infinity -> 403) and streams in batches; GET honours a

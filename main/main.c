@@ -3,7 +3,6 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "bootloader_random.h"
-#include "esp_ota_ops.h"
 #include "nvs_flash.h"
 #include "board.h"
 #include "button.h"
@@ -12,7 +11,6 @@
 #include "lcd_ui.h"
 #include "led.h"
 #include "netif.h"
-#include "ota.h"
 #include "refresh.h"
 #include "sdcard.h"
 #include "sdlog.h"
@@ -57,9 +55,6 @@ void app_main(void) {
     if (usb_msc_start() != ESP_OK) {
         ESP_LOGE(TAG, "USB start failed");
         led_set(255, 0, 0);
-        /* A fresh OTA image that cannot bring USB up has failed its self-check: roll back now instead of waiting
-         * for a reset (which may never come). A normal boot just stops here as before. */
-        if (ota_pending_verify()) ota_rollback_now("USB did not start");
         return;
     }
     if (sd_ok) {
@@ -72,12 +67,8 @@ void app_main(void) {
     }
 
     net_start(&s_set, false);                    /* after USB: Wi-Fi never delays or blocks the disk */
-    /* web_ok also covers ota_register(): an image whose OTA routes did not register must not mark itself valid. */
-    bool web_ok = web_start(&s_set) == ESP_OK && ota_register(&s_set) == ESP_OK;
+    web_start(&s_set);                           /* a web failure is logged there; the disk keeps working */
     refresh_start(&s_set);                       /* watches the SD card from here on */
-    /* A fresh OTA image has to prove itself: the check watches the refresh task for up to 60 s, so it runs in its own
-     * small task instead of inline here. A normal boot (not PENDING_VERIFY) does nothing at all. */
-    if (ota_pending_verify()) ota_selfcheck_start(web_ok);
     button_start(&s_set);                        /* only after boot: GPIO0 low at power-on means ROM download mode */
     lcd_ui_start();                              /* after refresh_start() and net_start(): it samples both */
 }

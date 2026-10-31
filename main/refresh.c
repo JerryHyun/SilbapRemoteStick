@@ -270,29 +270,21 @@ static void count_volume(void) {
 }
 
 
-/* ---- LED: yellow while mounting, green idle, blue while the PC reads, red on errors, white on an unverified image ---- */
+/* ---- LED: yellow while mounting, green idle, blue while the PC reads, red on errors ---- */
 static int s_led = -1;
-static volatile bool s_led_fault;        /* set once: the OTA self-check failed and could not roll back */
-enum { LED_YELLOW, LED_GREEN, LED_BLUE, LED_RED, LED_WHITE };
+enum { LED_YELLOW, LED_GREEN, LED_BLUE, LED_RED };
 static void led_state(int st) {
-    if (s_led_fault) st = LED_WHITE;     /* the fault outranks every normal state until the next boot */
     if (st == s_led) return;
     s_led = st;
     switch (st) {
     case LED_YELLOW: led_set(255, 160, 0); break;
     case LED_GREEN:  led_set(0, 255, 0); break;
     case LED_BLUE:   led_set(0, 0, 255); break;
-    case LED_WHITE:  led_set(255, 255, 255); break;
     default:         led_set(255, 0, 0); break;
     }
 }
 
 void refresh_led_reset(void) { s_led = -1; }
-void refresh_led_fault(void) {
-    s_led_fault = true;
-    s_led = -1;
-    led_state(LED_WHITE);
-}
 
 static void log_diag_once(void) {
     static bool first = true;

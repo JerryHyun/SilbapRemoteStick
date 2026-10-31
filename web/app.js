@@ -59,7 +59,6 @@ function setText(id, v) { document.getElementById(id).textContent = v; }
 var ST = null;          /* last /api/status */
 var CFG = null;         /* last /api/settings */
 var PAGE = 'files';
-var upd = null;         /* update-check result: { v, url } or null */
 var setupAppliedOnce = false;   /* latched: /api/status reports setup_applied only on the first read */
 /* The machine's volume is 16 GiB. Under 512 MiB free there is no room for another design, so the SPA warns
  * before a save fails on the machine. Guarded by sd_ok: free_kb is 0 without a card, which stage.no_medium covers. */
@@ -99,45 +98,6 @@ function renderBanners() {
   if (ST.over_limit) banner(box, t('banner.over_limit', { n: ST.hidden }));
   else if (ST.hidden > 0) banner(box, t('banner.hidden', { n: ST.hidden }));
   if (!ST.time_synced) banner(box, t('banner.no_clock'));
-  if (ST.selfcheck_failed) banner(box, t('banner.selfcheck_failed'));
-  if (upd) {
-    var p = el('p', 'banner', t('banner.update', { v: upd.v }) + ' ');
-    var a = el('a', null, t('banner.update_open'));
-    a.href = upd.url;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    p.appendChild(a);
-    box.appendChild(p);
-  }
-}
-
-/* ---- update check: the one external request of the SPA ---- */
-function verParts(v) {
-  var m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(v || ''));
-  return m ? [+m[1], +m[2], +m[3]] : null;
-}
-function semverGt(a, b) {     /* true when version a is newer than b; unparsable -> false */
-  var x = verParts(a), y = verParts(b);
-  if (!x || !y) return false;
-  for (var i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
-  return false;
-}
-function releaseUrl(u) {      /* only a GitHub page of this project is ever linked */
-  try {
-    var o = new URL(u);
-    if (o.protocol === 'https:' && o.hostname === 'github.com' && o.pathname.indexOf('/JerryHyun/SilbapRemoteStick/') === 0) return o.href;
-  } catch (e) {}
-  return null;
-}
-function checkUpdate() {
-  if (!CFG || !CFG.update_check || !ST || !ST.version) return;
-  fetch('https://api.github.com/repos/JerryHyun/SilbapRemoteStick/releases/latest', { cache: 'no-store' }).then(function (r) {
-    if (!r.ok) throw new Error('x');
-    return r.json();
-  }).then(function (j) {
-    var u = releaseUrl(j.html_url);
-    if (u && semverGt(j.tag_name, ST.version)) { upd = { v: String(j.tag_name).replace(/^v/, ''), url: u }; renderBanners(); }
-  }).catch(function () {});
 }
 
 /* ---- on load: clock and language ---- */
@@ -194,7 +154,6 @@ getJson('/assets/i18n/en.json').catch(function () { return {}; }).then(function 
       if (!stored && s.ui_lang !== cur && LANGS.indexOf(s.ui_lang) >= 0) setLang(s.ui_lang).then(function () { renderBanners(); showPage(PAGE); });
     }
     syncClock();
-    checkUpdate();
   }, function () {});
 });
 
@@ -454,7 +413,6 @@ function renderSettings() {
     function (v) { saveSetting({ lang: v }, true); }));
   c.appendChild(el('p', 'muted small', t('settings.lang_help')));
   field(c, t('settings.auto_refresh'), checkbox(CFG.auto_refresh, function (v) { saveSetting({ auto_refresh: v }); }), true);
-  field(c, t('settings.update_check'), checkbox(CFG.update_check, function (v) { saveSetting({ update_check: v }); }), true);
   var bar = el('div', 'toolbar');
   bar.appendChild(btn(t('files.refresh_now'), refreshNow, 'btn pri'));
   c.appendChild(bar);
@@ -506,130 +464,6 @@ function renderSettings() {
     }).then(function () { showMsg('settings.saved'); renderSettings(); }, function (e) { showMsg(errKey(e)); });
   }));
   k.appendChild(kb);
-
-  otaCard(view);
-}
-
-/* ---- firmware update (Task 12) ---- */
-var OTA = { file: null, busy: false };
-
-function otaStatus(text) {
-  var s = document.getElementById('otastatus');
-  if (!s) return;
-  s.hidden = !text;
-  s.textContent = text || '';
-}
-
-/* The server sends short codes for the OTA gates (arm, length, too_large, busy, wrong_image) plus the usual
- * err.* keys; map them to the i18n keys the UI shows. */
-function otaErrKey(k) {
-  if (k === 'arm') return 'err.ota_arm';
-  if (k === 'length') return 'err.length';
-  if (k === 'too_large') return 'err.too_large';
-  if (k === 'busy') return 'err.ota_busy';
-  if (k === 'wrong_image') return 'err.wrong_image';
-  return k || 'err.io';
-}
-
-function sendOta(file, onProgress) {
-  return new Promise(function (resolve, reject) {
-    var x = new XMLHttpRequest();
-    x.open('POST', '/api/ota');
-    x.upload.onprogress = function (ev) { if (ev.lengthComputable) onProgress(ev.loaded / ev.total); };
-    x.onload = function () {
-      if (x.status >= 200 && x.status < 300) { resolve(); return; }
-      var k = 'err.io';
-      try { k = JSON.parse(x.responseText).error || k; } catch (e) {}
-      var er = new Error(String(x.status));
-      er.key = otaErrKey(k);
-      reject(er);
-    };
-    x.onerror = x.ontimeout = function () { var er = new Error('net'); er.key = 'err.network'; reject(er); };
-    x.timeout = 180000;
-    x.send(file);
-  });
-}
-
-/* After a successful upload the stick restarts in about a second: poll until it answers again, then reload. */
-function otaReconnect(tries) {
-  if (tries > 20) return;
-  setTimeout(function () {
-    getJson('/api/status').then(function (s) {
-      if (s && s.version) location.reload();
-      else otaReconnect(tries + 1);
-    }, function () { otaReconnect(tries + 1); });
-  }, 3000);
-}
-
-/* Largest image the server accepts: /api/status's ota_max (min of the two slots), so no size is hardcoded here. The
- * fallback is the 4 MiB slot of this board, used only before the first /api/status or with an older firmware. */
-var OTA_FALLBACK_MAX = 4 * 1024 * 1024;
-function otaMaxBytes() {
-  return ST && ST.ota_max > 0 ? ST.ota_max : OTA_FALLBACK_MAX;
-}
-
-/* The server gate decides from the password state LATCHED AT BOOT, not the live one: setting a password during this
- * boot does not remove the BOOT requirement. Mirror that here; an older firmware without pw_at_boot falls back to the
- * live pw_set, which is what its gate used. */
-function otaBootPressNeeded() {
-  if (!ST) return true;
-  return ST.pw_at_boot === undefined ? !ST.pw_set : !ST.pw_at_boot;
-}
-
-function otaCard(view) {
-  var c = card(view, 'settings.ota_title');
-  c.appendChild(el('p', 'muted small', t('settings.ota_version', { v: (ST && ST.version) || '-' })));
-  c.appendChild(el('p', 'muted small', t('settings.ota_help')));
-
-  var pick = document.createElement('input');
-  pick.type = 'file';
-  pick.accept = '.bin';
-  pick.hidden = true;
-  var name = el('span', 'mono small', OTA.file ? OTA.file.name + ' (' + fmtSize(OTA.file.size) + ')' : t('settings.ota_none'));
-  pick.addEventListener('change', function () {
-    OTA.file = pick.files && pick.files[0] ? pick.files[0] : null;
-    name.textContent = OTA.file ? OTA.file.name + ' (' + fmtSize(OTA.file.size) + ')' : t('settings.ota_none');
-    otaStatus(null);
-  });
-
-  var bar = el('div', 'toolbar');
-  bar.appendChild(btn(t('settings.ota_choose'), function () { pick.click(); }));
-  if (otaBootPressNeeded()) {          /* a device that booted with a password: the upload itself is the permission */
-    bar.appendChild(btn(t('settings.ota_arm'), function () {
-      api('POST', '/api/ota/arm').then(function () {
-        otaStatus(t('settings.ota_armed'));
-      }, function (e) { showMsg(errKey(e)); });
-    }));
-    c.appendChild(el('p', 'muted small', t('settings.ota_arm_hint')));
-  }
-  var up = btn(t('settings.ota_upload'), function () {
-    if (OTA.busy) return;
-    if (!OTA.file) { showMsg('settings.ota_none'); return; }
-    if (OTA.file.size > otaMaxBytes()) { showMsg('err.too_large'); return; }
-    OTA.busy = true;
-    up.disabled = true;
-    otaStatus(t('settings.ota_started'));
-    sendOta(OTA.file, function (frac) {
-      otaStatus(t('settings.ota_uploading', { pct: Math.round(frac * 100) }));
-    }).then(function () {
-      OTA.busy = false;
-      otaStatus(t('settings.ota_done'));
-      otaReconnect(0);
-    }, function (e) {
-      OTA.busy = false;
-      up.disabled = false;
-      otaStatus(null);
-      showMsg(errKey(e));
-    });
-  }, 'btn warn');
-  bar.appendChild(up);
-  bar.appendChild(pick);
-  c.appendChild(bar);
-  c.appendChild(name);
-  var line = el('p', 'muted small');
-  line.id = 'otastatus';
-  line.hidden = true;
-  c.appendChild(line);
 }
 
 function renderHelp() {

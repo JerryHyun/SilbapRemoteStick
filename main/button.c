@@ -4,15 +4,13 @@
  * State machine: idle until the debounced press begins (bp_reset, duration clock starts). While held, bp_on_hold() is
  * called each poll and its action runs at most once per press: 5 s clears the web password (solid yellow for a second,
  * then the blink resumes), 15 s factory-resets and restarts. From 1 s the LED blinks yellow at 2 Hz so the user can see
- * the hold has been recognised. On release the policy decides with the OTA arm window as an input: a short press
- * confirms a pending update (BP_CONFIRM_OTA) while ota_armed(), otherwise it requests a refresh, and any press that
+ * the hold has been recognised. On release the policy decides: a short press requests a refresh, and any press that
  * ends without a restart hands the LED back with refresh_led_reset(). */
 #include "button.h"
 #include <string.h>
 #include "board.h"
 #include "button_policy.h"
 #include "led.h"
-#include "ota.h"
 #include "refresh.h"
 #include "sdlog.h"
 #include "settings.h"
@@ -96,9 +94,8 @@ static void button_task(void *arg) {
                 bp_reset(&s_bp);
                 s_blink_phase = -1;
             } else {
-                switch (bp_on_release_ex((unsigned)(now - t_down), ota_armed())) {
+                switch (bp_on_release((unsigned)(now - t_down))) {
                 case BP_REFRESH:     refresh_request(REFRESH_FORCED); break;
-                case BP_CONFIRM_OTA: ota_confirm(); break;      /* the arm window's BOOT press */
                 case BP_NONE:        break;                     /* a bounce, or a long press the hold loop owned */
                 case BP_CLEAR_PW:
                 case BP_FACTORY_RESET: break;                   /* never reported on release */
@@ -114,7 +111,6 @@ static void button_task(void *arg) {
         case BP_FACTORY_RESET: factory_reset(); break;   /* never returns */
         case BP_NONE:
         case BP_REFRESH:                                 /* neither is reported by bp_on_hold */
-        case BP_CONFIRM_OTA:
             if (held >= BLINK_FROM_MS) blink_yellow(held);
             break;
         }

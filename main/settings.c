@@ -17,14 +17,13 @@ static esp_err_t set_str(nvs_handle_t h, const char *key, const char *v) { retur
 
 void settings_load(settings_t *s) {
     memset(s, 0, sizeof *s);
-    s->rename = true; s->lang = NM_LANG_EN; s->auto_refresh = true; s->update_check = true;
+    s->rename = true; s->lang = NM_LANG_EN; s->auto_refresh = true;
     nvs_handle_t h;
     if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return;
     uint8_t v;
     if (nvs_get_u8(h, "rename", &v) == ESP_OK) s->rename = v != 0;
     if (nvs_get_u8(h, "lang", &v) == ESP_OK && v <= NM_LANG_JA) s->lang = (nm_lang_t)v;
     if (nvs_get_u8(h, "autoref", &v) == ESP_OK) s->auto_refresh = v != 0;
-    if (nvs_get_u8(h, "updchk", &v) == ESP_OK) s->update_check = v != 0;
     int16_t tz;
     if (nvs_get_i16(h, "tz_min", &tz) == ESP_OK && tz >= -14 * 60 && tz <= 14 * 60) s->tz_min = tz;
     get_str(h, "wifi_ssid", s->wifi_ssid, sizeof s->wifi_ssid);
@@ -45,7 +44,6 @@ esp_err_t settings_save(const settings_t *s) {
     if ((e = nvs_set_u8(h, "rename", s->rename)) == ESP_OK &&
         (e = nvs_set_u8(h, "lang", (uint8_t)s->lang)) == ESP_OK &&
         (e = nvs_set_u8(h, "autoref", s->auto_refresh)) == ESP_OK &&
-        (e = nvs_set_u8(h, "updchk", s->update_check)) == ESP_OK &&
         (e = nvs_set_i16(h, "tz_min", s->tz_min)) == ESP_OK &&
         (e = set_str(h, "wifi_ssid", s->wifi_ssid)) == ESP_OK &&
         (e = set_str(h, "wifi_pw", s->wifi_pw)) == ESP_OK &&

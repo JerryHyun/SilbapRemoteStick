@@ -26,5 +26,3 @@ CONFIG_ESP_WIFI_IRAM_OPT=y
 CONFIG_LWIP_IRAM_OPTIMIZATION=y
 # WebDAV: percent-encoded Korean paths (9 bytes per syllable) need long URIs (struct httpd_req holds one)
 CONFIG_HTTPD_MAX_URI_LEN=2048
-# OTA: a freshly written image must prove itself at boot (self-check) or the bootloader rolls back
-CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y

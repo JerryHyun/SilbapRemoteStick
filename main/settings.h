@@ -8,13 +8,12 @@ typedef struct {
     char wifi_ssid[33], wifi_pw[65];
     uint8_t pw_salt[16], pw_hash[32]; bool pw_set;
     int16_t tz_min;            /* minutes east of UTC */
-    bool update_check;         /* default true */
     char ap_pw[9];             /* 8 digits, generated on first boot */
     char ui_lang[3];           /* "ko"/"en"/"zh"/"ja"; "" = not chosen yet */
 } settings_t;
 #define SETTINGS_PW_MAX 64
 /* NVS namespace "silbap"; strings are stored as blobs. Defaults: rename=true, lang=EN,
- * auto_refresh=true, update_check=true, tz_min=0, no Wi-Fi, no password, ui_lang "". */
+ * auto_refresh=true, tz_min=0, no Wi-Fi, no password, ui_lang "". */
 void      settings_load(settings_t *s);
 esp_err_t settings_save(const settings_t *s);
 /* "" clears the password. Returns false (and changes nothing) when pw is longer than 64 bytes. Fresh random salt. */

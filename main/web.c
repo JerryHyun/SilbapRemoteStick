@@ -11,7 +11,7 @@
 #include "webcore.h"
 
 static const char *TAG = "web";
-#define MAX_ROUTES 32   /* 22 base routes (incl. the two OTA ones) + 7 setup-portal routes (Task 10); also httpd's max_uri_handlers */
+#define MAX_ROUTES 32   /* 20 base routes + 7 setup-portal routes (Task 10); also httpd's max_uri_handlers */
 #define MAX_EXTRA_HOSTS 8   /* the captive-portal probe hosts (main/provision.c PROBE_HOSTS) */
 #define MAX_HOSTS 12        /* net_allowed_hosts (<=3) + MAX_EXTRA_HOSTS + NULL */
 #define CHUNK 4096
@@ -232,13 +232,6 @@ void web_unroute(const char *uri, httpd_method_t m) {
 }
 
 bool web_started(void) { return s_srv != NULL; }
-
-bool web_route_registered(const char *uri, httpd_method_t m) {
-    if (!uri) return false;
-    for (int i = 0; i < MAX_ROUTES; i++)
-        if (s_used[i] && s_routes[i].uri && s_routes[i].method == m && !strcmp(s_routes[i].uri, uri)) return true;
-    return false;
-}
 
 esp_err_t web_run_in_server(void (*fn)(void *), void *arg) {
     if (!s_srv) return ESP_ERR_INVALID_STATE;

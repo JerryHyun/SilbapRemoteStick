@@ -3,7 +3,7 @@
 
 static settings_t base(void) {
     settings_t s; memset(&s, 0, sizeof s);
-    s.rename = true; s.lang = NM_LANG_EN; s.auto_refresh = true; s.update_check = true;
+    s.rename = true; s.lang = NM_LANG_EN; s.auto_refresh = true;
     return s;
 }
 static void merge(void) {
@@ -14,8 +14,8 @@ static void merge(void) {
     T_CHECK(rb); T_CHECK(s.lang == NM_LANG_KO);
     rb = false; T_EQ_INT(settings_merge_json(&s, "{ \"lang\" : \"ko\" }", &rb), 0); T_CHECK(!rb);   /* same value: no rebuild */
     rb = false; T_EQ_INT(settings_merge_json(&s, "{\"rename\":false}", &rb), 0); T_CHECK(rb); T_CHECK(!s.rename);
-    rb = false; T_EQ_INT(settings_merge_json(&s, "{\"auto_refresh\":false,\"update_check\":false}", &rb), 0);
-    T_CHECK(!rb); T_CHECK(!s.auto_refresh); T_CHECK(!s.update_check);
+    rb = false; T_EQ_INT(settings_merge_json(&s, "{\"auto_refresh\":false}", &rb), 0);
+    T_CHECK(!rb); T_CHECK(!s.auto_refresh);
     T_EQ_INT(settings_merge_json(&s, "{\"ui_lang\":\"ja\",\"tz_min\":-540}", &rb), 0);
     T_EQ_STR(s.ui_lang, "ja"); T_EQ_INT(s.tz_min, -540);
     T_EQ_INT(settings_merge_json(&s, "{\"lang\":\"zh\",\"lang\":\"en\"}", &rb), 0); T_CHECK(s.lang == NM_LANG_ZH);   /* duplicates: first wins (same as api_json_get_str) */

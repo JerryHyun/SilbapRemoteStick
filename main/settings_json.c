@@ -92,7 +92,7 @@ static int lang_index(const char *s) {
 }
 
 int settings_merge_json(settings_t *s, const char *json, bool *needs_rebuild) {
-    bool rename = s->rename, auto_refresh = s->auto_refresh, update_check = s->update_check, rebuild = false;
+    bool rename = s->rename, auto_refresh = s->auto_refresh, rebuild = false;
     nm_lang_t lang = s->lang;
     int16_t tz = s->tz_min;
     char ui[3] = "", str[16];
@@ -101,7 +101,6 @@ int settings_merge_json(settings_t *s, const char *json, bool *needs_rebuild) {
     if ((r = get_bool(json, "rename", &rename)) < 0) return -1;
     if (r && rename != s->rename) rebuild = true;
     if (get_bool(json, "auto_refresh", &auto_refresh) < 0) return -1;
-    if (get_bool(json, "update_check", &update_check) < 0) return -1;
     api_get_t g = api_json_get_str(json, "lang", str, sizeof str);
     if (g == API_INVALID) return -1;
     if (g == API_OK) {
@@ -124,7 +123,7 @@ int settings_merge_json(settings_t *s, const char *json, bool *needs_rebuild) {
         const char *v;
         if (!find_raw(json, "", &v)) return -1;
     }
-    s->rename = rename; s->auto_refresh = auto_refresh; s->update_check = update_check;
+    s->rename = rename; s->auto_refresh = auto_refresh;
     s->lang = lang;
     if (has_ui) memcpy(s->ui_lang, ui, 3);
     if (has_tz) s->tz_min = tz;

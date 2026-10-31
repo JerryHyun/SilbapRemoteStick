@@ -34,14 +34,10 @@ families = {k.split(".")[0] for k in en if "." in k}
 for lit in sorted(set(re.findall(r"""['"]([a-z_]+\.[a-z_0-9]+)['"]""", js + "\n" + setup))):
     if lit.split(".")[0] in families and lit not in en:
         fail(f"app.js/setup.html uses key {lit} that is missing from en.json")
-# The only external URL the SPA may contain is the GitHub release check (update_check).
-ALLOWED = {"https://api.github.com/repos/JerryHyun/SilbapRemoteStick/releases/latest"}
+# The SPA must not make any external request: no absolute URL anywhere in the web assets.
 URL_RE = r"""(?:https?:)?//[a-z0-9.-]+\.[a-z]{2,}[^\s'"`)]*"""
 for n in ("index.html", "app.js", "app.css", "setup.html"):
     for u in re.findall(URL_RE, rd(n), re.I):
-        if n != "app.js" or u not in ALLOWED:
-            fail(f"{n} contains an external URL: {u}")
-if not any(u in ALLOWED for u in re.findall(URL_RE, js, re.I)):
-    fail("app.js lacks the allowed update-check URL (test out of date?)")
+        fail(f"{n} contains an external URL: {u}")
 print(f"{len(en)} keys, {len(used)} used")
 sys.exit(1 if bad else 0)

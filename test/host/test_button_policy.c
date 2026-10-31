@@ -88,26 +88,10 @@ static void test_reset_edges(void) {
     T_EQ_INT(bp_on_hold(NULL, 15000), BP_NONE);
 }
 
-/* The OTA arm window turns the same short press into a confirmation, and nothing else changes. */
-static void test_release_ota_armed(void) {
-    T_EQ_INT(bp_on_release_ex(300, true), BP_CONFIRM_OTA);
-    T_EQ_INT(bp_on_release_ex(BP_DEBOUNCE_MS, true), BP_CONFIRM_OTA);
-    T_EQ_INT(bp_on_release_ex(BP_REFRESH_MAX_MS - 1, true), BP_CONFIRM_OTA);
-    T_EQ_INT(bp_on_release_ex(300, false), BP_REFRESH);               /* not armed: the old action */
-    T_EQ_INT(bp_on_release_ex(1, true), BP_NONE);                     /* a bounce confirms nothing */
-    T_EQ_INT(bp_on_release_ex(0, true), BP_NONE);
-    T_EQ_INT(bp_on_release_ex(BP_DEBOUNCE_MS - 1, true), BP_NONE);
-    T_EQ_INT(bp_on_release_ex(BP_REFRESH_MAX_MS, true), BP_NONE);     /* a long press: the hold loop owns it */
-    T_EQ_INT(bp_on_release_ex(3000, true), BP_NONE);
-    T_EQ_INT(bp_on_release_ex(0xFFFFFFFFu, true), BP_NONE);
-    T_EQ_INT(bp_on_release(300), bp_on_release_ex(300, false));       /* the wrapper is the armed == false case */
-}
-
 int main(void) {
     T_RUN(test_release_short);
     T_RUN(test_release_long);
     T_RUN(test_release_edges);
-    T_RUN(test_release_ota_armed);
     T_RUN(test_hold_clear_pw);
     T_RUN(test_hold_factory_reset);
     T_RUN(test_hold_big_jump);
