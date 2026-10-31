@@ -1,0 +1,7 @@
+set(SRCS setupfile.c help_text.c)
+if(ESP_PLATFORM)
+  idf_component_register(SRCS ${SRCS} INCLUDE_DIRS include)
+else()
+  add_library(setupfile STATIC ${SRCS})
+  target_include_directories(setupfile PUBLIC include)
+endif()

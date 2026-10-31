@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SilbapStick</title>
+<link rel="stylesheet" href="/assets/app.css">
+<style>
+  .nets{display:flex;flex-direction:column;gap:6px;margin:8px 0}
+  .nets[hidden]{display:none}
+  .net{font:inherit;text-align:left;min-height:48px;padding:10px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--fg);cursor:pointer;display:flex;justify-content:space-between;gap:8px;align-items:center}
+  .net.on{border-color:var(--ac);box-shadow:0 0 0 2px var(--ac) inset}
+  .net .meta{color:var(--mut);font-size:.8rem;white-space:nowrap}
+  .note{margin:6px 0;color:var(--mut);font-size:.85rem}
+  .ok{padding:12px 14px;border-radius:10px;border:1px solid #38a169;background:rgba(56,161,105,.12)}
+  .ok a{color:var(--ac);word-break:break-all}
+  .bad{padding:10px 12px;border-radius:8px;border:1px solid #c53030;background:rgba(197,48,48,.12)}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="id">
+    <h1 data-i="setup.title">SilbapStick setup</h1>
+    <p class="sub" data-i="setup.intro">Choose the Wi-Fi network this stick should join.</p>
+  </div>
+  <label class="lang"><span class="sr" data-i="setup.lang">Language</span>
+    <select id="lang" aria-label="Language">
+      <option value="ko">한국어</option>
+      <option value="en">English</option>
+      <option value="zh">简体中文</option>
+      <option value="ja">日本語</option>
+    </select>
+  </label>
+</header>
+<main>
+  <section class="card">
+    <h2 data-i="setup.networks">Nearby networks</h2>
+    <div class="toolbar">
+      <button type="button" class="btn" id="scan" data-i="setup.scan">Scan again</button>
+      <span class="note" id="scanmsg"></span>
+    </div>
+    <div class="nets" id="nets" aria-live="polite"></div>
+    <p class="note" data-i="setup.empty">No network found. Type the name below.</p>
+    <p class="note" data-i="setup.note_5ghz">5GHz 네트워크는 보이지 않아요</p>
+  </section>
+
+  <form class="card" id="form" autocomplete="off">
+    <h2 data-i="setup.form_title">Network to join</h2>
+    <label class="field"><span data-i="setup.ssid">Network name (SSID)</span>
+      <input type="text" id="ssid" maxlength="32" autocapitalize="off" spellcheck="false"></label>
+    <p class="note" data-i="setup.hidden">숨김 네트워크 직접 입력</p>
+    <label class="field"><span data-i="setup.pw">Password</span>
+      <input type="password" id="pw" maxlength="64" autocomplete="new-password"></label>
+    <p class="note" data-i="setup.pw_hint">Leave empty for an open network.</p>
+    <div class="toolbar"><button type="submit" class="btn pri" id="save" data-i="setup.save">Connect</button></div>
+  </form>
+
+  <section class="card" id="wait" hidden>
+    <h2 data-i="setup.connecting">연결 중… 새 주소</h2>
+    <p class="note" id="waitmsg"></p>
+  </section>
+
+  <section class="card ok" id="done" hidden>
+    <h2 data-i="setup.done_title">Connected</h2>
+    <p id="doneip"></p>
+    <p><a id="donehost" href="#"></a></p>
+  </section>
+
+  <section class="card" id="err" hidden>
+    <p class="bad" id="errmsg"></p>
+  </section>
+
+  <p class="note" data-i="setup.note_stay">휴대폰이 인터넷 없음이라고 하면 '연결 유지'를 선택하세요</p>
+</main>
+<script>
+'use strict';
+var LANGS = ['ko', 'en', 'zh', 'ja'];
+var dict = {}, fallback = {}, cur = 'en';
+/* firstIp must match SETUP_IP in main/netif.c (the setup AP address) and the portal's configure: the page treats any
+ * other address as "the stick joined the new network". */
+var nets = [], picked = -1, firstIp = '192.168.4.1', lastHost = '', waiting = false, waitNote = null;
+
+function t(k, p) {
+  var s = dict[k] || fallback[k] || k;
+  if (p) s = s.replace(/\{(\w+)\}/g, function (m, x) { return p[x] != null ? String(p[x]) : m; });
+  return s;
+}
+function applyI18n() {
+  document.documentElement.lang = cur === 'zh' ? 'zh-Hans' : cur;
+  var els = document.querySelectorAll('[data-i]');
+  for (var i = 0; i < els.length; i++) els[i].textContent = t(els[i].getAttribute('data-i'));
+  document.title = t('setup.title');
+  renderNets();
+  var wm = document.getElementById('waitmsg');
+  if (waitNote) wm.textContent = t(waitNote.k, waitNote.p);
+  else if (waiting) wm.textContent = t('setup.wait_hint');
+}
+function pickLang() {
+  var s = null;
+  try { s = localStorage.getItem('lang'); } catch (e) {}
+  if (LANGS.indexOf(s) >= 0) return s;
+  var n = (navigator.language || 'en').toLowerCase();
+  if (n.indexOf('ko') === 0) return 'ko';
+  if (n.indexOf('ja') === 0) return 'ja';
+  if (n.indexOf('zh') === 0) return 'zh';
+  return 'en';
+}
+function getJson(url) {
+  return fetch(url, { cache: 'no-store' }).then(function (r) {
+    if (!r.ok) throw new Error(String(r.status));
+    return r.json();
+  });
+}
+function setLang(l) {
+  cur = l;
+  try { localStorage.setItem('lang', l); } catch (e) {}
+  document.getElementById('lang').value = l;
+  var p = l === 'en' ? Promise.resolve(fallback) : getJson('/assets/i18n/' + l + '.json').catch(function () { return {}; });
+  return p.then(function (d) { dict = d; applyI18n(); });
+}
+
+/* ---- scanned networks ---- */
+function el(tag, cls, text) {
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function renderNets() {
+  var box = document.getElementById('nets');
+  while (box.firstChild) box.removeChild(box.firstChild);
+  nets.forEach(function (n, i) {
+    var b = el('button', 'net' + (i === picked ? ' on' : ''));
+    b.type = 'button';
+    b.appendChild(el('span', null, n.ssid));
+    b.appendChild(el('span', 'meta', n.rssi + ' dBm · ' + t(n.auth === 'open' ? 'setup.auth_open'
+      : n.auth === 'owe' ? 'setup.auth_owe' : 'setup.auth_locked')));
+    b.addEventListener('click', function () {
+      picked = i;
+      document.getElementById('ssid').value = n.ssid;
+      document.getElementById('pw').focus();
+      renderNets();
+    });
+    box.appendChild(b);
+  });
+  box.hidden = nets.length === 0;
+  document.querySelector('[data-i="setup.empty"]').hidden = nets.length !== 0;
+}
+function scan() {
+  var msg = document.getElementById('scanmsg');
+  msg.textContent = t('setup.scanning');
+  return getJson('/api/scan').then(function (l) {
+    nets = Array.isArray(l) ? l : [];
+    picked = -1;
+    msg.textContent = '';
+    renderNets();
+  }, function () { msg.textContent = t('setup.scan_failed'); });
+}
+
+/* ---- save, then wait for the address to change ---- */
+function showDone(ip, host) {
+  waiting = false;
+  waitNote = null;
+  document.getElementById('wait').hidden = true;
+  var box = document.getElementById('done');
+  box.hidden = false;
+  document.getElementById('doneip').textContent = t('setup.done_ip', { ip: ip });
+  var a = document.getElementById('donehost');
+  var h = host ? host + '.local' : '';
+  a.textContent = h;
+  a.href = 'http://' + h + '/';
+}
+function pollIp(left) {
+  if (!waiting) return;
+  getJson('/api/status').then(function (s) {
+    if (s && s.host) lastHost = String(s.host);
+    var ip = s && s.ip ? String(s.ip) : '';
+    if (ip && ip !== firstIp) { showDone(ip, s.host || ''); return; }
+    next(left);
+  }, function () { next(left); });           /* the AP may be dropping: keep trying */
+}
+function next(left) {
+  if (!waiting) return;
+  if (left <= 0) {
+    /* The AP drops as soon as the join works, which is exactly when the page can no longer see /api/status.
+     * So a timeout is not a failure: say it may have worked and point at the mDNS name. */
+    waiting = false;
+    waitNote = { k: 'setup.timeout', p: { host: lastHost || 'silbapstick' } };
+    document.getElementById('waitmsg').textContent = t('setup.timeout', waitNote.p);
+    return;
+  }
+  setTimeout(function () { pollIp(left - 1); }, 2000);
+}
+document.getElementById('form').addEventListener('submit', function (ev) {
+  ev.preventDefault();
+  var ssid = document.getElementById('ssid').value;
+  var pw = document.getElementById('pw').value;
+  document.getElementById('err').hidden = true;
+  if (!ssid) { document.getElementById('err').hidden = false; document.getElementById('errmsg').textContent = t('setup.need_ssid'); return; }
+  getJson('/api/status').then(function (s) { if (s && s.ip) firstIp = String(s.ip); }, function () {}).then(function () {
+    return fetch('/api/setup', {
+      method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ssid: ssid, password: pw })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.error || 'err.io');
+        return j;
+      });
+    });
+  }).then(function () {
+    document.getElementById('pw').value = '';
+    waiting = true;
+    waitNote = null;
+    document.getElementById('wait').hidden = false;
+    document.getElementById('waitmsg').textContent = t('setup.wait_hint');
+    next(30);                                 /* 30 x 2 s = one minute */
+  }, function (e) {
+    document.getElementById('err').hidden = false;
+    var k = e && e.message && /^err\./.test(e.message) ? e.message : 'setup.failed';
+    var known = dict[k] || fallback[k];
+    document.getElementById('errmsg').textContent = known ? t(k) : t('setup.failed') + ' (' + t('setup.err_hint') + ')';
+  });
+});
+document.getElementById('scan').addEventListener('click', scan);
+document.getElementById('lang').addEventListener('change', function (e) { setLang(e.target.value); });
+
+getJson('/assets/i18n/en.json').catch(function () { return {}; }).then(function (en) {
+  fallback = en;
+  return setLang(pickLang());
+}).then(function () {
+  scan();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+set(SRCS path.c httpchk.c json.c sha256.c)
+if(ESP_PLATFORM)
+  idf_component_register(SRCS ${SRCS} INCLUDE_DIRS include REQUIRES mbedtls)
+else()
+  add_library(webcore STATIC ${SRCS})
+  target_include_directories(webcore PUBLIC include)
+endif()

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SilbapStick</title>
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+<header class="bar">
+  <div class="id">
+    <h1 data-i18n="app.title">SilbapStick</h1>
+    <p class="sub"><span id="host">-</span> <span id="ip">-</span></p>
+  </div>
+  <label class="lang"><span class="sr" data-i18n="lang.label">Language</span>
+    <select id="lang" aria-label="Language">
+      <option value="ko">한국어</option>
+      <option value="en">English</option>
+      <option value="zh">简体中文</option>
+      <option value="ja">日本語</option>
+    </select>
+  </label>
+</header>
+<main>
+  <div id="banners" aria-live="polite"></div>
+  <nav class="tabs" id="tabs">
+    <button type="button" class="tab" data-page="files" data-i18n="nav.files">Files</button>
+    <button type="button" class="tab" data-page="settings" data-i18n="nav.settings">Settings</button>
+    <button type="button" class="tab" data-page="help" data-i18n="nav.help">Help</button>
+  </nav>
+  <section class="stats" aria-live="polite">
+    <div><b id="n-files">-</b><span data-i18n="status.files">Files</span></div>
+    <div><b id="n-dirs">-</b><span data-i18n="status.folders">Folders</span></div>
+    <div><b id="state">-</b><span data-i18n="status.state">Status</span></div>
+  </section>
+  <p id="msg" class="msg" hidden></p>
+  <section id="view"></section>
+</main>
+<footer><span data-i18n="footer.version">Version</span> <span id="ver">-</span></footer>
+<script src="/assets/app.js"></script>
+</body>
+</html>

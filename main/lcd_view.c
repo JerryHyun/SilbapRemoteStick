@@ -1,0 +1,180 @@
+/*
+ * lcd_view.c - the view model, the status-word selection and the repaint diff.
+ *
+ * Pure C, libc only.  Nothing here draws: the painter asks for the words and
+ * for the changed regions, and this file answers.
+ */
+#include "lcd_view.h"
+
+#include <string.h>
+
+unsigned lcd_view_diff(const lcd_shown_t *shown, const lcd_view_t *want) {
+    unsigned r = 0;
+
+    if (!shown || !want) {
+        return 0;
+    }
+
+    if (strcmp(shown->v.ip, want->ip) != 0) {
+        r |= LCD_R_IP;
+    }
+    if (strcmp(shown->v.ssid, want->ssid) != 0) {
+        r |= LCD_R_SSID;
+    }
+    if (shown->v.bars != want->bars) {
+        r |= LCD_R_BARS;
+    }
+    if (shown->v.connected != want->connected ||
+        shown->v.connecting != want->connecting ||
+        shown->v.error != want->error ||
+        shown->v.locked != want->locked) {
+        r |= LCD_R_STATUS;
+    }
+
+    /* qr_valid means "the glass currently holds a code for shown->v.ip". Compare it with
+     * what the wanted view calls for (a code exactly when there is an address) instead of
+     * demanding a code unconditionally: with no address the painter clears the region once
+     * and records qr_valid = false, and the next pass is idle. Testing `!qr_valid || ip == ""`
+     * would set LCD_R_QR on every pass while the address is blank, so the task would repaint
+     * the QR region forever at its tick rate. */
+    if ((r & LCD_R_IP) != 0 || shown->qr_valid != (want->ip[0] != '\0')) {
+        r |= LCD_R_QR;
+    }
+
+    return r;
+}
+
+int lcd_view_words(const lcd_view_t *v, const char **words, int max) {
+    int n = 0;
+
+    if (!words || max <= 0) {
+        return 0;
+    }
+
+    /* "Connecting" is the default, pre-Wi-Fi state: an all-false view is not
+     * "not connected", it is still trying. */
+    words[n++] = (v && v->connected) ? "Connected" : "Connecting";
+
+    /* Error joins the link word; it never replaces it.  "Err" rather than
+     * "Error": the column is 90 px and "Connecting Error" needed 92 px at the
+     * tightest pen, so the link word had to be cut.  "Err" is 24 px at the
+     * natural advance and leaves room for the padlock as well, which "Error"
+     * never did. */
+    if (v && v->error && n < max) {
+        words[n++] = "Err";
+    }
+
+    return n;
+}
+
+int lcd_view_bars_from_rssi(int rssi, bool connected) {
+    if (!connected || rssi >= 0) {
+        return 0;   /* net_rssi() reports 0 when the STA is not connected */
+    }
+    if (rssi > -55) return 4;
+    if (rssi > -65) return 3;
+    if (rssi > -75) return 2;
+    if (rssi > -85) return 1;
+    return 0;
+}
+
+int qr_px_per_module(int modules, int box_px) {
+    /* Integer only: 2 px/module for the 33-module v2 code needs 66 px, and a
+     * 65 px box must fall back to 1 rather than draw at 1.97 px and blur the
+     * grid.  With no room even for 1, 0 tells the painter to skip the code. */
+    if (modules <= 0 || box_px <= 0 || box_px < modules) {
+        return 0;
+    }
+    return box_px / modules;
+}
+
+bool lcd_view_should_error(bool sd_ok, uint32_t sd_missing_ms) {
+    return !sd_ok && sd_missing_ms >= 3000u;
+}
+
+/* ---- The tight pen: glyphs cropped to their ink ----
+ *
+ * The natural cell advance (font_glyph_advance: 8 or 16 px) is the layout's
+ * rhythm, but the right column is 90 px: "192.168.1.225" is 104 px that way and
+ * "Connected Error" is 112 (the old word; "Err" is 24).  Cropping each glyph to its inked columns and
+ * leaving `gap` px recovers the side bearings -- 76 and 87 px for those two --
+ * so the address and both status words fit whole.  Same glyphs, same 16 px
+ * height, nothing scaled.
+ */
+
+#define PEN_SPACE_PX 4
+
+int pen_span(uint32_t cp, int *first, int *width) {
+    const uint16_t *rows = font_rows(cp);
+    int lo = 16, hi = -1;
+    for (int r = 0; r < 16; r++) {
+        uint16_t bits = rows[r];
+        for (int c = 0; c < 16; c++) {
+            if (bits & (uint16_t)(0x8000u >> c)) {
+                if (c < lo) lo = c;
+                if (c > hi) hi = c;
+            }
+        }
+    }
+    if (hi < 0) {
+        return 0;
+    }
+    if (first) *first = lo;
+    if (width) *width = hi - lo + 1;
+    return hi - lo + 1;
+}
+
+int pen_px(const char *s, int gap) {
+    int px = 0, n = 0;
+    const char *p = s;
+    while (p && *p) {
+        int w = pen_span(font_utf8_next(&p), NULL, NULL);
+        px += w ? w : PEN_SPACE_PX;
+        n++;
+    }
+    return n ? px + gap * (n - 1) : 0;
+}
+
+int pen_fit(const char *s, int max_px, int gap, char *out, size_t out_sz) {
+    static const char ellipsis[] = "\xE2\x80\xA6";     /* U+2026 */
+    if (!out || out_sz == 0) {
+        return 0;
+    }
+    out[0] = '\0';
+    if (!s || max_px <= 0) {
+        return 0;
+    }
+
+    bool cut = pen_px(s, gap) > max_px;
+    int ell_px = pen_px(ellipsis, 0) + gap;            /* the cut mark and its gap */
+    int budget = cut ? max_px - ell_px : max_px;
+
+    size_t used = 0;
+    int px = 0, n = 0;
+    const char *p = s;
+    while (*p) {
+        const char *q = p;
+        int w = pen_span(font_utf8_next(&q), NULL, NULL);
+        int add = (w ? w : PEN_SPACE_PX) + (n ? gap : 0);
+        if (px + add > budget) {
+            break;
+        }
+        size_t len = (size_t)(q - p);
+        if (used + len > out_sz - 1) {
+            break;                                     /* never split a sequence */
+        }
+        memcpy(out + used, p, len);
+        used += len;
+        px += add;
+        n++;
+        p = q;
+    }
+
+    if (cut && px + ell_px <= max_px && used + sizeof ellipsis - 1 <= out_sz - 1) {
+        memcpy(out + used, ellipsis, sizeof ellipsis - 1);
+        used += sizeof ellipsis - 1;
+        px += ell_px;
+    }
+    out[used] = '\0';
+    return px;
+}

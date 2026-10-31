@@ -1,0 +1,21 @@
+menu "SilbapRemoteStick"
+config SILBAP_DEV_CDC
+    bool "Development build: add a CDC serial console next to MSC"
+    default n
+choice SILBAP_SD_FREQ
+    prompt "SD bus clock"
+    default SILBAP_SD_FREQ_DEFAULT
+    config SILBAP_SD_FREQ_DEFAULT
+        bool "20 MHz (SDMMC_FREQ_DEFAULT)"
+    config SILBAP_SD_FREQ_HIGHSPEED
+        bool "40 MHz (SDMMC_FREQ_HIGHSPEED)"
+endchoice
+choice SILBAP_SD_WIDTH
+    prompt "SD bus width"
+    default SILBAP_SD_WIDTH_4
+    config SILBAP_SD_WIDTH_4
+        bool "4-bit"
+    config SILBAP_SD_WIDTH_1
+        bool "1-bit"
+endchoice
+endmenu
