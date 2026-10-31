@@ -1,6 +1,14 @@
 # Name,   Type, SubType,  Offset,   Size
+# 16 MiB flash (GD25Q128). Offsets are kept stable on purpose: the layout is flashed
+# whole, and moving a data partition would invalidate what a device already holds.
 nvs,      data, nvs,      0x9000,   0x6000
 phy_init, data, phy,      0x11000,  0x1000
+# No OTA: one factory slot, flashed over USB/serial. 8 MiB is more than the app needs
+# (~1.6 MiB) and is sized so the data partitions below keep their offsets.
 factory,  app,  factory,  0x20000,  0x800000
+# RESERVED, not in use. The 16x16 glyphs are compiled into the app (main/font_data.c,
+# ~366 KiB for ASCII + Latin-1 + Hangul), which is why nothing reads this partition.
+# It stays as headroom: if the table ever outgrows the app slot, moving the glyphs here
+# restores the original design without re-partitioning a card or a device in the field.
 font,     data, 0x40,     0x820000, 0x300000
 coredump, data, coredump, 0xB20000, 0x10000
