@@ -294,9 +294,12 @@ static bool portal_sync(bool wait) {
     return ok;
 }
 
-/* Strong override of the weak hook declared in web.h: GET / answers the 302 to /setup exactly while the portal is
- * wanted. s_want is set by provision_start and cleared by provision_stop, so the redirect cannot outlive the portal. */
-bool web_setup_only(void) { return s_want; }
+/* Strong override of the weak hook declared in web.h: GET / answers the 302 to /setup only while the device is
+ * actually in setup mode. s_want alone is not enough: netif keeps the AP -- and therefore the portal -- up for
+ * AP_LINGER_MS (30 s) after the STA has joined, and during that window the user is already on the new network,
+ * where 192.168.4.1 is not routable. net_state() reports NET_ONLINE as soon as the STA has an IP (s_connected is
+ * checked before s_ap_active), so the redirect stops the moment the join works, not 30 s later. */
+bool web_setup_only(void) { return s_want && net_state() == NET_SETUP; }
 
 /* Called by web_start() once the server runs (the setup AP usually comes up before it). Queued, not waited for: boot
  * must not sit in app_main for the HTTP task. The portal is reachable as soon as the httpd task gets to the item. */

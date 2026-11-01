@@ -23,10 +23,16 @@ void web_unroute(const char *uri, httpd_method_t m);
 /* True once web_start() has a running server. */
 bool web_started(void);
 
-/* True while the setup portal is up, so GET / must answer the redirect to /setup instead of the SPA. The strong
- * definition lives in main/provision.c and returns its s_want; main/web.c provides a weak fallback returning false,
- * the same pattern as the provision_start/stop hooks in main/netif.h. If provision.c is ever dropped from the build
- * the linker picks the fallback and "/" serves the SPA in setup mode -- the old behaviour, not a crash. */
+/* True while the setup portal is up AND the device is actually in setup mode, so GET / must answer the redirect to
+ * /setup instead of the SPA. The strong definition lives in main/provision.c; main/web.c provides a weak fallback
+ * returning false, the same pattern as the provision_start/stop hooks in main/netif.h. If provision.c is ever
+ * dropped from the build the linker picks the fallback and "/" serves the SPA in setup mode -- the old behaviour,
+ * not a crash.
+ *
+ * The __attribute__((weak)) must be on the DEFINITION in web.c only, never here. A function attribute is part of
+ * the function's type in every translation unit that includes this header, so putting it on this declaration also
+ * makes provision.c's definition weak; the linker then keeps web.c's "return false", the redirect never happens,
+ * and nothing warns. That exact mistake was made once and only the nm check caught it. */
 bool web_setup_only(void);
 
 /* Runs fn(arg) in the HTTP server task (httpd_queue_work), so a route-table change never races a dispatch. Returns
