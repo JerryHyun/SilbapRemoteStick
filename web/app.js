@@ -394,10 +394,10 @@ function card(view, titleKey) {
   view.appendChild(c);
   return c;
 }
-function saveSetting(patch, rebuilt) {
+function saveSetting(patch) {
   api('POST', '/api/settings', patch).then(function (c) {
     CFG = c;
-    showMsg(rebuilt ? 'settings.saved_rebuild' : 'settings.saved');
+    showMsg('settings.saved');
   }, function (e) { showMsg(errKey(e)); });
 }
 
