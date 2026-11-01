@@ -45,8 +45,10 @@
 #define BARS_X  (LCD_COL_X + LCD_COL_W - BARS_W)                 /* 138 */
 #define BARS_BASELINE (LCD_ROW_SSID_Y + LCD_ROW_H)               /* 44 */
 
-/* The pen leaves this many pixels between glyphs.  It closes to 0 only when a
- * line would otherwise not fit (see paint_status). */
+/* The pen leaves this many pixels between glyphs, and always this many: nothing
+ * shrinks it any more.  paint_status()'s fit loop can still close it for a pair
+ * of words that would not otherwise fit, but at 152 px no status line gets
+ * there; the loop is kept as the fit contract, not as a live path. */
 #define GAP_PX   1
 
 #define WORD_GAP 8           /* between the status words */
@@ -166,17 +168,27 @@ static void draw_bars(int bars) {
 /* ---- Regions ---- */
 
 static void paint_addr(const lcd_view_t *v) {
-    /* One draw, no retry loop: the widest thing this row can hold is
-     * "http://255.255.255.255" at 135 px on the tight pen with the 1 px glyph
-     * gap open (a typical "http://192.168.1.225" is 118 px), and the column is
-     * 152 px.  There is no gap value to search for -- even the full-width IPv4
-     * fits with room to spare, so a second pass could never be needed.  A
-     * truncated address is still worse than none, so draw_row's ellipsis is a
-     * guard against something that is not IPv4, not a path we take. */
+    /* The row is cleared first and unconditionally, so a blank address (or one
+     * that does not fit) leaves no stale text behind. */
     clear_row(LCD_ROW_ADDR_Y);
+
     char line[40];
     lcd_view_addr_line(v->ip, line, sizeof line);
-    if (line[0]) draw_row(LCD_ROW_ADDR_Y, line, LCD_COL_W, GAP_PX);
+    if (!line[0]) return;
+
+    /* One draw, no retry loop: a real address always fits, so there is no gap
+     * value to search for.  "http://255.255.255.255", the widest dotted quad
+     * the device can be given, is 135 px on the tight pen with the 1 px glyph
+     * gap open, and the column is 152 px.  "http://192.168.1.225" is 118 px.
+     *
+     * The fit check below is not for addresses: it exists because v->ip is any
+     * 15 characters, not necessarily a dotted quad.  The widest 15-char tail is
+     * 162 px, and drawing that as "http://$$$$$$$…" would put a pseudo-URL on
+     * the glass that can never resolve -- worse than a blank row, because it
+     * tells the user to type something that will not work.  So: no fit, no
+     * text.  (draw_row would ellipsise; we never let it get that far.) */
+    if (pen_px(line, GAP_PX) > LCD_COL_W) return;
+    draw_row(LCD_ROW_ADDR_Y, line, LCD_COL_W, GAP_PX);
 }
 
 static void paint_ssid(const lcd_view_t *v) {

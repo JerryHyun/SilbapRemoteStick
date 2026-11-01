@@ -79,9 +79,14 @@ int lcd_view_words(const lcd_view_t *v, const char **words, int max) {
      * "not connected", it is still trying. */
     words[n++] = (v && v->connected) ? "Connected" : "Connecting";
 
-    /* Error joins the link word; it never replaces it.  "Err" rather than
-     * "Error": "Err" is 24 px at the natural advance, which leaves room for the
-     * padlock on the same row where "Error" did not. */
+    /* Error joins the link word; it never replaces it.  The word stays "Err":
+     * it is what the firmware ships, what the tests assert and what the help
+     * text documents.  The original reason for the abbreviation has expired --
+     * "Err" was picked because "Error" did not leave room for the padlock in
+     * the old 90 px column, and in the 152 px column even "Connecting Error"
+     * plus the lock is 121 px -- but shortening a shipped status word is a
+     * user-visible change with no bearing on the QR removal, so it is not
+     * decided here. */
     if (v && v->error && n < max) {
         words[n++] = "Err";
     }

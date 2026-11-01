@@ -110,16 +110,14 @@ static void test_words_setup_pw(void) {
     T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_STATUS);
 }
 
-/* There is no QR any more: four region bits, and an address change repaints the
- * address row only. */
+/* There is no QR any more: the address row is repainted by LCD_R_IP alone. */
 static void test_no_qr_and_addr_diff(void) {
-    /* the QR bit is gone: a view cannot ask for one */
-    T_EQ_INT(LCD_R_IP | LCD_R_SSID | LCD_R_BARS | LCD_R_STATUS, 15);
     lcd_shown_t shown; memset(&shown, 0, sizeof shown);
     shown.v = view("192.168.0.42", "MyHome", 4, true, false, false, false);
     lcd_view_t want = shown.v;
     T_EQ_INT(lcd_view_diff(&shown, &want), 0);
-    /* an address change repaints the address row only */
+    /* an address change repaints the address row and nothing else: LCD_R_IP is
+     * the only bit it sets (a QR bit, if one came back, would show up here) */
     strcpy(want.ip, "192.168.0.43");
     T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_IP);
     /* a blank address repaints the row (it must go empty, not keep the old text) */
@@ -128,7 +126,32 @@ static void test_no_qr_and_addr_diff(void) {
     T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_IP);
 }
 
-static void test_pw_row_clears_after_setup(void) {
+/* The too-wide-address guard in paint_addr(): a real address always fits, any
+ * 15 characters might not.  The guard is a pure pen_px() comparison, so it is
+ * tested here rather than through the painter. */
+static void test_addr_too_wide_guard(void) {
+    /* the widest dotted quad the device can be handed still fits, 135 of 152 px */
+    T_CHECK(pen_px("http://255.255.255.255", 1) <= LCD_COL_W);
+    /* v->ip is char[16], so the longest possible line is 22 characters.  The
+     * widest inked ASCII glyph is '$' (7 px), so that line is 162 px and the
+     * guard must reject it: otherwise the row would show "http://$$$$$$…",
+     * a URL that can never resolve. */
+    char worst[24];
+    memset(worst, '$', sizeof worst);
+    memcpy(worst, "http://", 7);
+    worst[22] = '\0';
+    T_EQ_INT((int)strlen(worst), 22);
+    T_CHECK(pen_px(worst, 1) > LCD_COL_W);
+    /* the column sits between the two: every real quad fits, the worst 15-char
+     * text does not, so the guard rejects only input that is not an address */
+    T_CHECK(pen_px("http://255.255.255.255", 1) <= LCD_COL_W &&
+            pen_px(worst, 1) > LCD_COL_W);
+}
+
+/* The status word model and the diff bit after setup mode ends.  The on-glass
+ * erase is not what this proves: paint_status() clears the row unconditionally
+ * before it draws, so the model cannot leave the password behind. */
+static void test_pw_words_and_diff_after_setup(void) {
     /* setup mode: PW: and the digits */
     lcd_view_t v = view("192.168.4.1", "SilbapStick-A1B2", -1, true, false, false, false);
     strcpy(v.ap_pw, "12345678");
@@ -367,21 +390,20 @@ static void test_ellipsize_px(void) {
 }
 
 static void test_geometry_fits(void) {
-    /* The status line: the painter uses the tight pen and closes the glyph gap
-     * to 0 and the word gap to 4 when two words must fit.  "Connected Err" is
-     * then 75 px and with the 4 + 8 px lock 87 px.  "Connecting Err" is 80 px
-     * without the lock (92 with it).  All of it fits the 152 px column with the
-     * 1 px gap still open, which is what the painter actually draws with.
-     * That is why the error word is "Err": "Connected Error" was the version
-     * that needed the gap closed to keep the link word whole. */
-    T_CHECK(pen_px("Connected", 0) + 4 + pen_px("Err", 0) <= LCD_COL_W);
-    T_CHECK(pen_px("Connected", 0) + 4 + pen_px("Err", 0) + 4 + 8 <= LCD_COL_W);
-    T_CHECK(pen_px("Connecting", 0) + 4 + pen_px("Err", 0) <= LCD_COL_W);
-    /* the widest status line, lock included, still fits the full-width column */
-    T_CHECK(pen_px("Connecting", 0) + 4 + pen_px("Err", 0) + 4 + 8 <= LCD_COL_W);
-    /* and with the 1 px glyph gap the painter uses by default, no shrinking is needed */
-    T_CHECK(pen_px("Connecting", 1) + 8 + pen_px("Err", 1) + 4 + 8 <= LCD_COL_W);
+    /* The status line fits whole with nothing shrunk.  The painter draws with
+     * the 1 px glyph gap and the 8 px word gap, and at 152 px that is what it
+     * always uses: "Connected Err" is 89 px and "Connecting Err" 95 px, plus
+     * 4 + 8 px for the lock.  paint_status() can close the gaps, but no status
+     * line needs it at this width.  "Err" itself is the shipped word, not a
+     * width decision any more -- see lcd_view_words(). */
+    T_CHECK(pen_px("Connected", 1) + 8 + pen_px("Err", 1) <= LCD_COL_W);
     T_CHECK(pen_px("Connected", 1) + 8 + pen_px("Err", 1) + 4 + 8 <= LCD_COL_W);
+    T_CHECK(pen_px("Connecting", 1) + 8 + pen_px("Err", 1) <= LCD_COL_W);
+    /* the widest status line, lock included, still fits the full-width column,
+     * and keeps a wide margin: 95 + 12 = 107 of the 152 px */
+    T_CHECK(pen_px("Connecting", 1) + 8 + pen_px("Err", 1) + 4 + 8 <= LCD_COL_W);
+    /* even "Error", which the shipped word does not use, would fit, lock and all */
+    T_CHECK(pen_px("Connecting", 1) + 8 + pen_px("Error", 1) + 4 + 8 <= LCD_COL_W);
 }
 
 static void test_pen(void) {
@@ -404,8 +426,8 @@ static void test_pen(void) {
     T_EQ_INT(pen_px("", 1), 0);
     T_EQ_INT(pen_px(" ", 1), 4);
 
-    /* the status words on the tight pen: "Connected Err" leaves room for the
-     * lock, which the old "Error" did not */
+    /* the status words on the tight pen: "Connected Err" fits the column with
+     * the lock appended; "Err" is the shipped word (see lcd_view_words) */
     T_CHECK(pen_px("Connected", 0) + 4 + pen_px("Err", 0) + 4 + 8 <= LCD_COL_W);
 
     char out[64];
@@ -434,7 +456,8 @@ int main(void) {
     T_RUN(test_words_locked_only);
     T_RUN(test_words_setup_pw);
     T_RUN(test_no_qr_and_addr_diff);
-    T_RUN(test_pw_row_clears_after_setup);
+    T_RUN(test_addr_too_wide_guard);
+    T_RUN(test_pw_words_and_diff_after_setup);
     T_RUN(test_diff);
     T_RUN(test_addr_line);
     T_RUN(test_layout_new);
