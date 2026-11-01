@@ -102,12 +102,49 @@ static void test_words_setup_pw(void) {
     lcd_shown_t shown; memset(&shown, 0, sizeof shown);
     shown.v = view("192.168.4.1", "SilbapStick-A1B2", -1, true, false, false, false);
     strcpy(shown.v.ap_pw, "12345678");
-    shown.qr_valid = true;
     lcd_view_t want = shown.v;
     T_EQ_INT(lcd_view_diff(&shown, &want), 0);
     strcpy(want.ap_pw, "87654321");
     T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_STATUS);
     want.ap_pw[0] = 0;
+    T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_STATUS);
+}
+
+/* There is no QR any more: four region bits, and an address change repaints the
+ * address row only. */
+static void test_no_qr_and_addr_diff(void) {
+    /* the QR bit is gone: a view cannot ask for one */
+    T_EQ_INT(LCD_R_IP | LCD_R_SSID | LCD_R_BARS | LCD_R_STATUS, 15);
+    lcd_shown_t shown; memset(&shown, 0, sizeof shown);
+    shown.v = view("192.168.0.42", "MyHome", 4, true, false, false, false);
+    lcd_view_t want = shown.v;
+    T_EQ_INT(lcd_view_diff(&shown, &want), 0);
+    /* an address change repaints the address row only */
+    strcpy(want.ip, "192.168.0.43");
+    T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_IP);
+    /* a blank address repaints the row (it must go empty, not keep the old text) */
+    shown.v = want;
+    want.ip[0] = '\0';
+    T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_IP);
+}
+
+static void test_pw_row_clears_after_setup(void) {
+    /* setup mode: PW: and the digits */
+    lcd_view_t v = view("192.168.4.1", "SilbapStick-A1B2", -1, true, false, false, false);
+    strcpy(v.ap_pw, "12345678");
+    const char *w[2];
+    T_EQ_INT(lcd_view_words(&v, w, 2), 2);
+    T_EQ_STR(w[0], "PW:"); T_EQ_STR(w[1], "12345678");
+    /* leaving setup mode clears the field before the words are chosen: the status line must not
+     * keep showing the AP password after a network is joined */
+    v.ap_pw[0] = '\0';
+    T_EQ_INT(lcd_view_words(&v, w, 2), 1);
+    T_EQ_STR(w[0], "Connected");
+    /* and the diff repaints the status row on that transition */
+    lcd_shown_t shown; memset(&shown, 0, sizeof shown);
+    shown.v = view("192.168.4.1", "SilbapStick-A1B2", -1, true, false, false, false);
+    strcpy(shown.v.ap_pw, "12345678");
+    lcd_view_t want = shown.v; want.ap_pw[0] = '\0';
     T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_STATUS);
 }
 
@@ -117,14 +154,13 @@ static void test_diff(void) {
 
     /* identical */
     shown.v = view("192.168.0.42", "MyHome", 4, true, false, false, false);
-    shown.qr_valid = true;
     want = shown.v;
     T_EQ_INT(lcd_view_diff(&shown, &want), 0);
 
-    /* IP change also regenerates the code */
+    /* IP change repaints the address row */
     want.ip[0] = '\0';
     strcpy(want.ip, "192.168.0.43");
-    T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_IP | LCD_R_QR);
+    T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_IP);
 
     /* SSID-only */
     want = shown.v;
@@ -147,42 +183,24 @@ static void test_diff(void) {
     want.bars = 2;
     T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_BARS);
 
-    /* an invalid code on the glass forces a repaint */
-    shown.qr_valid = false;
-    want = shown.v;
-    T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_QR);
-    shown.qr_valid = true;
-
-    /* a blank IP must clear the code, never show a stale one */
+    /* a blank IP must clear the row, never show a stale address */
     shown.v = view("192.168.0.42", "MyHome", 4, true, false, false, false);
-    shown.qr_valid = true;
     want = shown.v;
     want.ip[0] = '\0';
-    T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_IP | LCD_R_QR);
+    T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_IP);
 
-    /* blank IP with a code on the glass: clear it once */
+    /* empty -> empty is nothing to do */
     shown.v = view("", "", -1, false, false, false, false);
-    shown.qr_valid = true;
     want = shown.v;
-    T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_QR);
-
-    /* ...and the pass after the painter cleared it is idle: no relayout loop while the
-     * address is blank (the authoritative state, not a per-pass demand) */
-    shown.qr_valid = false;
     T_EQ_INT(lcd_view_diff(&shown, &want), 0);
 
-    /* empty -> empty with no code on the glass: nothing to do */
-    T_EQ_INT(lcd_view_diff(&shown, &want), 0);
-
-    /* an address appearing after a blank one draws the code again */
+    /* an address appearing after a blank one draws the row */
     shown.v = view("", "", -1, false, false, false, false);
-    shown.qr_valid = false;
     want = view("192.168.0.42", "", -1, false, false, false, false);
-    T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_IP | LCD_R_QR);
+    T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_IP);
 
     /* error joins the status line */
     shown.v = view("192.168.0.42", "MyHome", 4, true, false, false, false);
-    shown.qr_valid = true;
     want = shown.v;
     want.error = true;
     T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_STATUS);
@@ -232,21 +250,15 @@ static void test_layout_new(void) {
 }
 
 static void test_layout(void) {
-    /* Task 1 moved the text to the full-width column; the QR box is still
-     * defined (Task 2 deletes it with paint_qr) and still inside the panel. */
-    T_CHECK(LCD_QR_X + LCD_QR_W <= LCD_PANEL_W && LCD_QR_Y + LCD_QR_H <= LCD_PANEL_H);
+    /* three rows, 4 px top margin, 8 px row gaps, all inside 160x80 */
     T_CHECK(LCD_COL_X + LCD_COL_W <= LCD_PANEL_W);
-    T_CHECK(LCD_ROW_IP_Y + LCD_ROW_H <= LCD_PANEL_H);
+    T_CHECK(LCD_ROW_ADDR_Y + LCD_ROW_H <= LCD_PANEL_H);
     T_CHECK(LCD_ROW_SSID_Y + LCD_ROW_H <= LCD_PANEL_H);
     T_CHECK(LCD_ROW_STATUS_Y + LCD_ROW_H <= LCD_PANEL_H);
-    T_CHECK(LCD_ROW_IP_Y + LCD_ROW_H <= LCD_ROW_SSID_Y);
+    T_CHECK(LCD_ROW_ADDR_Y + LCD_ROW_H <= LCD_ROW_SSID_Y);
     T_CHECK(LCD_ROW_SSID_Y + LCD_ROW_H <= LCD_ROW_STATUS_Y);
-    T_EQ_INT(LCD_QR_X, 0);
-    T_EQ_INT(LCD_QR_Y, 7);
-    T_EQ_INT(LCD_QR_W, 66);
-    T_EQ_INT(LCD_QR_H, 66);
     T_EQ_INT(LCD_COL_X, 4);
-    T_EQ_INT(LCD_ROW_IP_Y, 4);
+    T_EQ_INT(LCD_ROW_ADDR_Y, 4);
     T_EQ_INT(LCD_ROW_SSID_Y, 28);
     T_EQ_INT(LCD_ROW_STATUS_Y, 52);
 }
@@ -265,20 +277,6 @@ static void test_bars(void) {
     T_EQ_INT(lcd_view_bars_from_rssi(-75, true), 1);
     T_EQ_INT(lcd_view_bars_from_rssi(-85, true), 0);
     T_EQ_INT(lcd_view_bars_from_rssi(-40, false), 0);
-}
-
-static void test_qr_scale(void) {
-    /* the plan's four cases: v2 (25 modules) + 4+4 quiet = 33 */
-    T_EQ_INT(qr_px_per_module(33, 66), 2);
-    T_EQ_INT(qr_px_per_module(33, 65), 1);   /* never 1.9 */
-    T_EQ_INT(qr_px_per_module(33, 32), 0);
-    T_EQ_INT(qr_px_per_module(21, 66), 3);   /* v1, 13+8 = 21 */
-    /* degenerate boxes */
-    T_EQ_INT(qr_px_per_module(33, 33), 1);
-    T_EQ_INT(qr_px_per_module(33, 0), 0);
-    T_EQ_INT(qr_px_per_module(33, -5), 0);
-    T_EQ_INT(qr_px_per_module(0, 66), 0);
-    T_EQ_INT(qr_px_per_module(-1, 66), 0);
 }
 
 static void test_error_hold(void) {
@@ -369,28 +367,21 @@ static void test_ellipsize_px(void) {
 }
 
 static void test_geometry_fits(void) {
-    /* the QR the painter draws for a typical address must land inside the
-     * binding box and leave a real quiet zone.  Task 1 moved the text to the
-     * full-width column, so the box and the column overlap on purpose until
-     * Task 2 deletes paint_qr() and this test with it. */
-    const int v2 = 25;
-    int sc = qr_px_per_module(v2 + 8, LCD_QR_W);
-    T_EQ_INT(sc, 2);
-    T_CHECK(v2 * sc <= LCD_QR_W);
-    T_CHECK(LCD_QR_X + v2 * sc <= LCD_PANEL_W);
-
-    /* the status line: the painter uses the tight pen and closes the glyph gap
+    /* The status line: the painter uses the tight pen and closes the glyph gap
      * to 0 and the word gap to 4 when two words must fit.  "Connected Err" is
      * then 75 px and with the 4 + 8 px lock 87 px.  "Connecting Err" is 80 px
-     * without the lock (92 with it), so the words fit whole and only the lock
-     * yields.  That is why the error word is "Err": "Connected Error" needed
-     * 87 px with no room for the lock at all, and "Connecting Error" 92 px,
-     * which cut the link word. */
+     * without the lock (92 with it).  All of it fits the 152 px column with the
+     * 1 px gap still open, which is what the painter actually draws with.
+     * That is why the error word is "Err": "Connected Error" was the version
+     * that needed the gap closed to keep the link word whole. */
     T_CHECK(pen_px("Connected", 0) + 4 + pen_px("Err", 0) <= LCD_COL_W);
     T_CHECK(pen_px("Connected", 0) + 4 + pen_px("Err", 0) + 4 + 8 <= LCD_COL_W);
     T_CHECK(pen_px("Connecting", 0) + 4 + pen_px("Err", 0) <= LCD_COL_W);
     /* the widest status line, lock included, still fits the full-width column */
     T_CHECK(pen_px("Connecting", 0) + 4 + pen_px("Err", 0) + 4 + 8 <= LCD_COL_W);
+    /* and with the 1 px glyph gap the painter uses by default, no shrinking is needed */
+    T_CHECK(pen_px("Connecting", 1) + 8 + pen_px("Err", 1) + 4 + 8 <= LCD_COL_W);
+    T_CHECK(pen_px("Connected", 1) + 8 + pen_px("Err", 1) + 4 + 8 <= LCD_COL_W);
 }
 
 static void test_pen(void) {
@@ -442,12 +433,13 @@ int main(void) {
     T_RUN(test_words);
     T_RUN(test_words_locked_only);
     T_RUN(test_words_setup_pw);
+    T_RUN(test_no_qr_and_addr_diff);
+    T_RUN(test_pw_row_clears_after_setup);
     T_RUN(test_diff);
     T_RUN(test_addr_line);
     T_RUN(test_layout_new);
     T_RUN(test_layout);
     T_RUN(test_bars);
-    T_RUN(test_qr_scale);
     T_RUN(test_error_hold);
     T_RUN(test_advance);
     T_RUN(test_ellipsize_px);

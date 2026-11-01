@@ -3,9 +3,9 @@
  *
  * Nothing else may draw while this task runs: it owns every pixel.  The panel
  * has no frame buffer (no PSRAM), so a region is painted one row at a time
- * from a small stack buffer: a glyph row is at most 16 px, a QR row at most
- * 66 px.  A glyph is at most 16 blits (blank rows are skipped), a text line is
- * at most 16 per glyph, and there is never a full-screen repaint.
+ * from a small stack buffer: a glyph row is at most 16 px.  A glyph is at most
+ * 16 blits (blank rows are skipped), a text line is at most 16 per glyph, and
+ * there is never a full-screen repaint.
  *
  * The task never takes sdcard_lock and never touches the card.  It copies the
  * net state, refresh_status() and the settings, diffs the result against what
@@ -15,7 +15,6 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
@@ -27,17 +26,12 @@
 #include "font_lookup.h"
 #include "lcd.h"
 #include "netif.h"
-#include "qrcodegen.h"
 #include "refresh.h"
 #include "settings.h"
 
 /* Light ink on the panel's own background (lcd_init clears it to black). */
 #define INK LCD_COLOR_WHITE
 #define BG  LCD_COLOR_BLACK
-/* A QR code is dark modules on a light field, i.e. the opposite polarity to the
- * text, and its 4-module quiet zone must be light too: the whole 66x66 box is
- * filled with this before the modules are punched out in BG. */
-#define QR_FIELD LCD_COLOR_WHITE
 
 #define TICK_MS      250     /* the sampling period when nothing wakes us */
 #define SETTINGS_MS  1000    /* how often the settings are re-read: a new password shows within a second */
@@ -48,11 +42,11 @@
 #define BAR_GAP 2
 #define BAR_N   4
 #define BARS_W  (BAR_N * BAR_W + (BAR_N - 1) * BAR_GAP)          /* 18 */
-#define BARS_X  (LCD_COL_X + LCD_COL_W - BARS_W)                 /* 142 */
-#define BARS_BASELINE (LCD_ROW_SSID_Y + LCD_ROW_H)               /* 40 */
+#define BARS_X  (LCD_COL_X + LCD_COL_W - BARS_W)                 /* 138 */
+#define BARS_BASELINE (LCD_ROW_SSID_Y + LCD_ROW_H)               /* 44 */
 
 /* The pen leaves this many pixels between glyphs.  It closes to 0 only when a
- * line would otherwise not fit (see paint_status and paint_ip). */
+ * line would otherwise not fit (see paint_status). */
 #define GAP_PX   1
 
 #define WORD_GAP 8           /* between the status words */
@@ -82,22 +76,6 @@ static const uint8_t lock_8x12[LOCK_H] = {
     0xFF,   /* ######## */
 };
 
-/* "http://255.255.255.255/" is 23 bytes: version 2 (25 modules) holds it at
- * ECC LOW and version 4 (33 modules) is comfortable headroom.  A small cap
- * keeps the two encoder buffers (137 bytes each) in static storage. */
-#define QR_MAX_VERSION 4
-#define QR_BUF_LEN qrcodegen_BUFFER_LEN_FOR_VERSION(QR_MAX_VERSION)
-
-static uint8_t s_qr[QR_BUF_LEN];
-static uint8_t s_qr_tmp[QR_BUF_LEN];
-
-/* What the QR region holds: the address it was built for and whether a code
- * (not just the cleared background) is on the glass.  Caching the address means
- * an address that cannot be encoded is not re-attempted on every pass: the diff
- * keeps asking (qr_valid stays false) but no SPI traffic runs. */
-static char s_qr_for[16];
-static bool s_qr_on_glass;
-
 /* The view last painted.  Only the task touches this. */
 static lcd_shown_t s_shown;
 
@@ -121,7 +99,7 @@ static void copy_str(char *dst, size_t cap, const char *src) {
  *
  * The glyphs are native 16 px (the layout was built for them; nothing is
  * scaled), placed by the tight pen in lcd_view.c so the address and the status
- * words fit the 90 px column.
+ * words fit the 152 px column.
  */
 
 static void clear_row(int y) {
@@ -187,20 +165,18 @@ static void draw_bars(int bars) {
 
 /* ---- Regions ---- */
 
-static void paint_ip(const lcd_view_t *v) {
-    /* An address must never be cut: a truncated IP is worse than none.  With
-     * the gap open "192.168.1.225" is 76 px; a full dotted quad needs the gap
-     * closed as well, and then it is 93 px -- one pixel over -- so the smallest
-     * gap that fits wins here rather than dropping a digit. */
-    clear_row(LCD_ROW_IP_Y);
-    if (!v->ip[0]) return;
-    for (int gap = GAP_PX; gap >= 0; gap--) {
-        if (pen_px(v->ip, gap) <= LCD_COL_W) {
-            draw_row(LCD_ROW_IP_Y, v->ip, LCD_COL_W, gap);
-            return;
-        }
-    }
-    draw_row(LCD_ROW_IP_Y, v->ip, LCD_COL_W, 0);   /* not an IPv4: cut it */
+static void paint_addr(const lcd_view_t *v) {
+    /* One draw, no retry loop: the widest thing this row can hold is
+     * "http://255.255.255.255" at 135 px on the tight pen with the 1 px glyph
+     * gap open (a typical "http://192.168.1.225" is 118 px), and the column is
+     * 152 px.  There is no gap value to search for -- even the full-width IPv4
+     * fits with room to spare, so a second pass could never be needed.  A
+     * truncated address is still worse than none, so draw_row's ellipsis is a
+     * guard against something that is not IPv4, not a path we take. */
+    clear_row(LCD_ROW_ADDR_Y);
+    char line[40];
+    lcd_view_addr_line(v->ip, line, sizeof line);
+    if (line[0]) draw_row(LCD_ROW_ADDR_Y, line, LCD_COL_W, GAP_PX);
 }
 
 static void paint_ssid(const lcd_view_t *v) {
@@ -221,10 +197,11 @@ static void paint_status(const lcd_view_t *v) {
     clear_row(y);
 
     /* The error word is "Err" (see lcd_view_words), so two words fit without
-     * cutting anything: on the tight pen with the gap closed "Connected Err" is
-     * 75 px and "Connecting Err" 80 px, both inside the 90 px column.  The
-     * painter still closes the gaps when it has to, and "Err" is the word that
-     * is never cut: the link word takes what is left after it. */
+     * cutting anything: on the tight pen with the 1 px glyph gap "Connected Err"
+     * is 89 px and "Connecting Err" 95 px, both far inside the 152 px column, so
+     * the shrink loop below never runs for a status line.  It stays because it
+     * is the fit contract, and "Err" is the word that is never cut: the link
+     * word takes what is left after it. */
     int gap = GAP_PX, word = WORD_GAP;
     if (n == 2) {
         while (pen_px(w[0], gap) + word + pen_px(w[1], gap) > LCD_COL_W) {
@@ -249,64 +226,13 @@ static void paint_status(const lcd_view_t *v) {
         }
     }
 
-    /* The padlock takes its 4 + 8 px only when the words leave room.  With
-     * "Connected Err" they do (87 px of the 90); with "Connecting Err" they do
-     * not (92 px), and a cut word is worse than a missing lock. */
+    /* The padlock takes its 4 + 8 px only when the words leave room.  At this
+     * width they always do: "Connected Err" ends at 89 px and "Connecting Err"
+     * at 95, and the lock needs 12 more of the 152.  The check stays because a
+     * cut word is worse than a missing lock. */
     if (v->locked && x + LOCK_GAP + LOCK_W <= end) {
         draw_lock(x + LOCK_GAP, y + (LCD_ROW_H - LOCK_H) / 2);
     }
-}
-
-/* Clears the 66x66 box and, when there is an address, draws the code for
- * http://<ip>/ at ECC LOW.  Returns true when a code is on the glass. */
-static bool paint_qr(const lcd_view_t *v) {
-    if (strcmp(s_qr_for, v->ip) == 0) {
-        return s_qr_on_glass;           /* the glass already reflects this address */
-    }
-
-    /* Blank or a new address: the box goes back to the page background first, so clearing leaves no white
-     * patch, then a code (if any) is drawn over a light field inside it. */
-    lcd_fill_rect(LCD_QR_X, LCD_QR_Y, LCD_QR_W, LCD_QR_H, BG);
-
-    bool drawn = false;
-    if (v->ip[0]) {
-        lcd_fill_rect(LCD_QR_X, LCD_QR_Y, LCD_QR_W, LCD_QR_H, QR_FIELD);
-        char url[32];
-        snprintf(url, sizeof url, "http://%.15s/", v->ip);
-
-        int size = 0;
-        if (qrcodegen_encodeText(url, s_qr_tmp, s_qr, qrcodegen_Ecc_LOW, 1, QR_MAX_VERSION,
-                                 qrcodegen_Mask_AUTO, false)) {
-            size = qrcodegen_getSize(s_qr);
-        }
-        /* + 8 for the 4-module quiet zone on both sides, so the scale leaves a
-         * real quiet zone inside the binding 66 px box. */
-        int scale = qr_px_per_module(size + 8, LCD_QR_W);
-        if (size > 0 && scale > 0) {
-            int span = size * scale;
-            int ox = LCD_QR_X + (LCD_QR_W - span) / 2;
-            int oy = LCD_QR_Y + (LCD_QR_H - span) / 2;
-            uint16_t row[LCD_QR_W];
-            for (int my = 0; my < size; my++) {
-                for (int mx = 0; mx < size; mx++) {
-                    /* A QR code is dark modules on a light field. Drawing the set modules in the panel's
-                     * ink colour (white) over a black field inverts the contrast every decoder expects:
-                     * some Android scanners read an inverted code, many refuse it. The field is filled
-                     * light and the set modules are punched out dark. */
-                    uint16_t c = qrcodegen_getModule(s_qr, mx, my) ? BG : QR_FIELD;
-                    for (int k = 0; k < scale; k++) row[mx * scale + k] = c;
-                }
-                for (int k = 0; k < scale; k++) {
-                    lcd_blit(ox, oy + my * scale + k, span, 1, row);
-                }
-            }
-            drawn = true;
-        }
-    }
-
-    copy_str(s_qr_for, sizeof s_qr_for, v->ip);
-    s_qr_on_glass = drawn;
-    return drawn;
 }
 
 /* ---- The task ---- */
@@ -395,13 +321,10 @@ static bool take_published(lcd_view_t *out) {
 }
 
 static void paint(unsigned r, const lcd_view_t *want) {
-    if (r & LCD_R_IP) paint_ip(want);
+    if (r & LCD_R_IP) paint_addr(want);
     if (r & (LCD_R_SSID | LCD_R_BARS)) paint_ssid(want);
     if (r & LCD_R_STATUS) paint_status(want);
-    bool qr_valid = s_shown.qr_valid;
-    if (r & LCD_R_QR) qr_valid = paint_qr(want);
     s_shown.v = *want;
-    s_shown.qr_valid = qr_valid;         /* true only while a code is on the glass */
 }
 
 static void lcd_ui_task(void *arg) {
@@ -411,10 +334,6 @@ static void lcd_ui_task(void *arg) {
     settings_load(&st.s);
     st.next_settings_ms = now_ms() + SETTINGS_MS;
     memset(&s_shown, 0, sizeof s_shown);
-    /* A sentinel, not "": if the first pass already has an address (or none),
-     * s_qr_for must not claim to match it, so the region is painted once. */
-    s_qr_for[0] = '\x01';
-    s_qr_on_glass = false;
 
     /* The panel is black at boot, and an all-false view (no address, NET_OFF)
      * diffs to zero against the zeroed s_shown, so the first pass would draw
@@ -432,7 +351,7 @@ static void lcd_ui_task(void *arg) {
 
         unsigned r = lcd_view_diff(&s_shown, &want);
         if (first) {
-            r = LCD_R_IP | LCD_R_SSID | LCD_R_BARS | LCD_R_STATUS | LCD_R_QR;
+            r = LCD_R_IP | LCD_R_SSID | LCD_R_BARS | LCD_R_STATUS;
             first = false;
         }
         if (r) paint(r, &want);

@@ -37,16 +37,6 @@ unsigned lcd_view_diff(const lcd_shown_t *shown, const lcd_view_t *want) {
         r |= LCD_R_STATUS;
     }
 
-    /* qr_valid means "the glass currently holds a code for shown->v.ip". Compare it with
-     * what the wanted view calls for (a code exactly when there is an address) instead of
-     * demanding a code unconditionally: with no address the painter clears the region once
-     * and records qr_valid = false, and the next pass is idle. Testing `!qr_valid || ip == ""`
-     * would set LCD_R_QR on every pass while the address is blank, so the task would repaint
-     * the QR region forever at its tick rate. */
-    if ((r & LCD_R_IP) != 0 || shown->qr_valid != (want->ip[0] != '\0')) {
-        r |= LCD_R_QR;
-    }
-
     return r;
 }
 
@@ -108,16 +98,6 @@ int lcd_view_bars_from_rssi(int rssi, bool connected) {
     if (rssi > -75) return 2;
     if (rssi > -85) return 1;
     return 0;
-}
-
-int qr_px_per_module(int modules, int box_px) {
-    /* Integer only: 2 px/module for the 33-module v2 code needs 66 px, and a
-     * 65 px box must fall back to 1 rather than draw at 1.97 px and blur the
-     * grid.  With no room even for 1, 0 tells the painter to skip the code. */
-    if (modules <= 0 || box_px <= 0 || box_px < modules) {
-        return 0;
-    }
-    return box_px / modules;
 }
 
 bool lcd_view_should_error(bool sd_ok, uint32_t sd_missing_ms) {

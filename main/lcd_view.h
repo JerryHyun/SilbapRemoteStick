@@ -30,19 +30,10 @@
 #define LCD_PANEL_W       160
 #define LCD_PANEL_H       80
 
-/* The 66x66 QR box: removed in Task 2, together with paint_qr(), which is the
- * only thing that still uses it.  It stays here until then so this commit keeps
- * the panel painting. */
-#define LCD_QR_X          0           /* removed in Task 2 */
-#define LCD_QR_Y          7           /* removed in Task 2 */
-#define LCD_QR_W          66          /* removed in Task 2 */
-#define LCD_QR_H          66          /* removed in Task 2 */
-
 #define LCD_COL_X         4
 #define LCD_COL_W         152
 
 #define LCD_ROW_ADDR_Y    4
-#define LCD_ROW_IP_Y      LCD_ROW_ADDR_Y  /* old name: paint_ip() still uses it; removed in Task 2 */
 #define LCD_ROW_SSID_Y    28
 #define LCD_ROW_STATUS_Y  52
 #define LCD_ROW_H         16
@@ -55,16 +46,14 @@ typedef struct {
     bool connected, connecting, error, locked;
 } lcd_view_t;
 
-typedef struct { lcd_view_t v; bool qr_valid; } lcd_shown_t;
+typedef struct { lcd_view_t v; } lcd_shown_t;
 
-/* Which regions differ between what is on the glass and want. */
-enum { LCD_R_IP = 1, LCD_R_SSID = 2, LCD_R_BARS = 4, LCD_R_STATUS = 8, LCD_R_QR = 16 };
+/* Which regions differ between what is on the glass and want.  Four bits: the
+ * three text rows plus the signal bars.  A blank address is an LCD_R_IP
+ * change like any other, so the row is cleared rather than left stale. */
+enum { LCD_R_IP = 1, LCD_R_SSID = 2, LCD_R_BARS = 4, LCD_R_STATUS = 8 };
 
-/* The union of changed region bits (0 when nothing changed).
- *
- * LCD_R_QR is set when the IP differs, when the shown view has no valid code,
- * or when the wanted IP is "" -- a blank address must clear the code rather
- * than leave a stale one on the glass. */
+/* The union of changed region bits (0 when nothing changed). */
 unsigned lcd_view_diff(const lcd_shown_t *shown, const lcd_view_t *want);
 
 /* The address row's text: "http://<ip>" in out.  "" when ip is empty (a blank
@@ -88,13 +77,6 @@ int lcd_view_words(const lcd_view_t *v, const char **words, int max);
 /* RSSI in dBm -> 0..4 bars.  A link that is not connected, or an RSSI of 0
  * (net_rssi()'s "not connected" value), reads as 0 bars. */
 int lcd_view_bars_from_rssi(int rssi, bool connected);
-
-/* ---- Geometry that is pure arithmetic, kept out of the painter ----
- *
- * The largest integer scale (px per module) at which a modules x modules code
- * fits in box_px, or 0 when not even 1 px per module fits.  Never a
- * fractional scale: a phone camera needs the modules square and integral. */
-int qr_px_per_module(int modules, int box_px);
 
 /* True once the card has been missing for hold_ms (the spec's 3 s hold).
  * sd_missing_ms is how long refresh_status().sd_ok has been false; it is

@@ -10,7 +10,6 @@ full license text into `licenses/` when its code or data is first added.
 | [ESP-IDF](https://github.com/espressif/esp-idf), esp_tinyusb, mdns | framework and components | Apache-2.0 |
 | [TinyUSB](https://github.com/hathach/tinyusb) | USB stack | MIT |
 | [ESP Web Tools](https://github.com/esphome/esp-web-tools) | browser flasher page | Apache-2.0 |
-| [qrcodegen](https://github.com/nayuki/QR-Code-generator) | QR codes on the LCD; main/qrcodegen.c/.h are Project Nayuki's single-file C encoder, vendored unmodified ([licenses/qrcodegen-MIT.txt](licenses/qrcodegen-MIT.txt)) | MIT |
 | [Unicode Unihan database](https://www.unicode.org/charts/unihan.html) | Han readings (kMandarin, kHangul, kJapanese) | Unicode License v3 |
 | [Ark Pixel font](https://github.com/TakWolf/ark-pixel-font) | LCD font | SIL OFL 1.1 |
 | [GNU Unifont](https://unifoundry.com/unifont/) | LCD font glyph bitmaps, compiled from unifont-16.0.04.hex into main/font_data.c by tools/gen_font.py (OFL option) ([licenses/Unifont-OFL.txt](licenses/Unifont-OFL.txt)) | SIL OFL 1.1 (dual-licensed) |
