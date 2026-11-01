@@ -16,31 +16,35 @@
  * Re-exported here because the layout is what the painter needs it for. */
 #include "font_lookup.h"
 
-/* The 160x80 panel, binding layout (spec, "Decisions"):
+/* The 160x80 panel, binding layout (spec, "Layout" and "Decisions"):
  *
- *   x 0..65     QR, 66x66 at y 7..72 (7 px top and bottom margins)
- *   x 70..159   line 1 (y 4..19)  IP
- *               line 2 (y 24..39) SSID + signal bars
- *               line 3 (y 44..59) status words + lock glyph
+ *   x 4..155    the full-width column: 152 px of the panel's 160
+ *   y  4..19    line 1  http://<ip>          (lcd_view_addr_line)
+ *   y 28..43    line 2  SSID + signal bars
+ *   y 52..67    line 3  status words + lock glyph
  *
- * The right column is 90 px wide (70..159); each row is 16 px high, and the
- * 5 px gaps keep 16 px glyphs from touching.  Nothing may be drawn outside
- * 160x80; the painter clips anyway.
+ * Each row is 16 px high; the 8 px row gaps keep 16 px glyphs from touching,
+ * and the 4 px column inset matches the 4 px top margin.  Nothing may be drawn
+ * outside 160x80; the painter clips anyway.
  */
 #define LCD_PANEL_W       160
 #define LCD_PANEL_H       80
 
-#define LCD_QR_X          0
-#define LCD_QR_Y          7
-#define LCD_QR_W          66
-#define LCD_QR_H          66
+/* The 66x66 QR box: removed in Task 2, together with paint_qr(), which is the
+ * only thing that still uses it.  It stays here until then so this commit keeps
+ * the panel painting. */
+#define LCD_QR_X          0           /* removed in Task 2 */
+#define LCD_QR_Y          7           /* removed in Task 2 */
+#define LCD_QR_W          66          /* removed in Task 2 */
+#define LCD_QR_H          66          /* removed in Task 2 */
 
-#define LCD_COL_X         70
-#define LCD_COL_W         90
+#define LCD_COL_X         4
+#define LCD_COL_W         152
 
-#define LCD_ROW_IP_Y      4
-#define LCD_ROW_SSID_Y    24
-#define LCD_ROW_STATUS_Y  44
+#define LCD_ROW_ADDR_Y    4
+#define LCD_ROW_IP_Y      LCD_ROW_ADDR_Y  /* old name: paint_ip() still uses it; removed in Task 2 */
+#define LCD_ROW_SSID_Y    28
+#define LCD_ROW_STATUS_Y  52
 #define LCD_ROW_H         16
 
 typedef struct {
@@ -62,6 +66,12 @@ enum { LCD_R_IP = 1, LCD_R_SSID = 2, LCD_R_BARS = 4, LCD_R_STATUS = 8, LCD_R_QR 
  * or when the wanted IP is "" -- a blank address must clear the code rather
  * than leave a stale one on the glass. */
 unsigned lcd_view_diff(const lcd_shown_t *shown, const lcd_view_t *want);
+
+/* The address row's text: "http://<ip>" in out.  "" when ip is empty (a blank
+ * address must leave a blank row, never a stale one) and "" when out_sz cannot
+ * hold the whole URL -- a partial "http://192.16" is worse than nothing.
+ * out is always NUL-terminated when out_sz > 0. */
+void lcd_view_addr_line(const char *ip, char *out, size_t out_sz);
 
 /* The status words in draw order.  Normally: the link word always, then "Err" when the
  * error flag is set; locked is a flag for the caller, never a word.
@@ -93,11 +103,11 @@ bool lcd_view_should_error(bool sd_ok, uint32_t sd_missing_ms);
 
 /* ---- The tight pen: glyphs cropped to their ink ----
  *
- * The natural advance (font_glyph_advance) is the layout's rhythm, but the
- * right column is 90 px: "192.168.1.225" is 104 px at 8 px per cell and
- * "Connected Error" is 112 (the old word; "Err" is 24).  These crop each glyph to its inked columns and
- * leave `gap` px between glyphs, so those fit whole (76 and 87 px) in the same
- * 16 px glyphs, unscaled.  A blank glyph advances 4 px.
+ * The natural advance (font_glyph_advance) is the layout's rhythm: "192.168.1.225"
+ * is 104 px at 8 px per cell.  This crops each glyph to its inked columns and
+ * leaves `gap` px between glyphs, which is what the painter draws with -- the
+ * 152 px column is measured on this pen, not on the natural advance.  A blank
+ * glyph advances 4 px.
  *
  * pen_span: the ink width of one glyph, plus its first inked column (either
  * out pointer may be NULL).  0 for a blank glyph.

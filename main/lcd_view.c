@@ -6,6 +6,7 @@
  */
 #include "lcd_view.h"
 
+#include <stdio.h>
 #include <string.h>
 
 unsigned lcd_view_diff(const lcd_shown_t *shown, const lcd_view_t *want) {
@@ -49,6 +50,25 @@ unsigned lcd_view_diff(const lcd_shown_t *shown, const lcd_view_t *want) {
     return r;
 }
 
+/* "http://" is what tells a person who has never seen this device that the value goes in a
+ * browser.  It is part of the same line, not a separate row: one row of "what to type" beats
+ * two rows of "here is a prefix, here is an address", and it costs 43 px of a 160 px panel. */
+void lcd_view_addr_line(const char *ip, char *out, size_t out_sz) {
+    if (!out || !out_sz) {
+        return;
+    }
+    out[0] = '\0';
+    if (!ip || !ip[0]) {
+        return;                                /* blank address: blank row, never a stale one */
+    }
+    char tmp[40];
+    int n = snprintf(tmp, sizeof tmp, "http://%s", ip);
+    if (n <= 0 || (size_t)n >= sizeof tmp || (size_t)n >= out_sz) {
+        return;                                /* never a partial URL */
+    }
+    memcpy(out, tmp, (size_t)n + 1);
+}
+
 int lcd_view_words(const lcd_view_t *v, const char **words, int max) {
     int n = 0;
 
@@ -70,10 +90,8 @@ int lcd_view_words(const lcd_view_t *v, const char **words, int max) {
     words[n++] = (v && v->connected) ? "Connected" : "Connecting";
 
     /* Error joins the link word; it never replaces it.  "Err" rather than
-     * "Error": the column is 90 px and "Connecting Error" needed 92 px at the
-     * tightest pen, so the link word had to be cut.  "Err" is 24 px at the
-     * natural advance and leaves room for the padlock as well, which "Error"
-     * never did. */
+     * "Error": "Err" is 24 px at the natural advance, which leaves room for the
+     * padlock on the same row where "Error" did not. */
     if (v && v->error && n < max) {
         words[n++] = "Err";
     }
@@ -109,11 +127,11 @@ bool lcd_view_should_error(bool sd_ok, uint32_t sd_missing_ms) {
 /* ---- The tight pen: glyphs cropped to their ink ----
  *
  * The natural cell advance (font_glyph_advance: 8 or 16 px) is the layout's
- * rhythm, but the right column is 90 px: "192.168.1.225" is 104 px that way and
- * "Connected Error" is 112 (the old word; "Err" is 24).  Cropping each glyph to its inked columns and
- * leaving `gap` px recovers the side bearings -- 76 and 87 px for those two --
- * so the address and both status words fit whole.  Same glyphs, same 16 px
- * height, nothing scaled.
+ * rhythm; cropping each glyph to its inked columns and leaving `gap` px
+ * between them recovers the side bearings, so a line is narrower than its cell
+ * count suggests -- "192.168.1.225" is 104 px on the cells and 99 px with the
+ * gap closed.  Same glyphs, same 16 px height, nothing scaled.  This is the pen
+ * the 152 px full-width column is measured with.
  */
 
 #define PEN_SPACE_PX 4

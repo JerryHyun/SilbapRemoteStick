@@ -66,7 +66,9 @@ static void ap_config(wifi_config_t *c) {
     memset(c, 0, sizeof *c);
     uint8_t m[6] = { 0 };
     esp_read_mac(m, ESP_MAC_WIFI_STA);
-    int n = snprintf((char *)c->ap.ssid, sizeof c->ap.ssid, "SilbapStick-Setup-%02X%02X", m[4], m[5]);
+    /* The MAC suffix stays so two dongles on one bench are distinguishable; "Setup" goes
+     * because setup mode is obvious from the PW: and 192.168.4.1 lines on the same screen. */
+    int n = snprintf((char *)c->ap.ssid, sizeof c->ap.ssid, "SilbapStick-%02X%02X", m[4], m[5]);
     c->ap.ssid_len = (uint8_t)n;
     strlcpy((char *)c->ap.password, s_set->ap_pw, sizeof c->ap.password);
     c->ap.channel = 1;

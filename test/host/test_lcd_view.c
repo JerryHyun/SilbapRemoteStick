@@ -95,7 +95,7 @@ static void test_words_setup_pw(void) {
     v.error = false; v.locked = false; v.connecting = false; v.connected = true;
     T_EQ_INT(lcd_view_words(&v, w, 2), 1); T_EQ_STR(w[0], "Connected");
 
-    /* the password is never cut: "PW:" + gap + 8 digits fits the 90 px column on the tight pen */
+    /* the password is never cut: "PW:" + gap + 8 digits fits the column on the tight pen */
     T_CHECK(pen_px("PW:", 0) + 4 + pen_px("12345678", 0) <= LCD_COL_W);
 
     /* a change of password alone repaints the status line, and so does appearing/disappearing */
@@ -188,23 +188,67 @@ static void test_diff(void) {
     T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_STATUS);
 }
 
+/* The address row: "http://" once, never doubled, and never a partial URL. */
+static void test_addr_line(void) {
+    char b[40];
+    lcd_view_addr_line("192.168.1.225", b, sizeof b);  T_EQ_STR(b, "http://192.168.1.225");
+    lcd_view_addr_line("192.168.4.1", b, sizeof b);    T_EQ_STR(b, "http://192.168.4.1");
+    lcd_view_addr_line("", b, sizeof b);               T_EQ_STR(b, "");          /* no stale address */
+    /* never a partial URL when the buffer is short */
+    lcd_view_addr_line("192.168.1.225", b, 12);        T_EQ_STR(b, "");
+
+    /* degenerate arguments: no out, no size, no address */
+    lcd_view_addr_line("192.168.1.225", NULL, sizeof b);
+    lcd_view_addr_line("192.168.1.225", b, 0);         T_EQ_STR(b, "");
+    lcd_view_addr_line(NULL, b, sizeof b);             T_EQ_STR(b, "");
+    /* exactly enough room for the whole URL and its NUL is enough */
+    lcd_view_addr_line("192.168.4.1", b, strlen("http://192.168.4.1") + 1);
+    T_EQ_STR(b, "http://192.168.4.1");
+    /* one byte short is not */
+    lcd_view_addr_line("192.168.4.1", b, strlen("http://192.168.4.1"));
+    T_EQ_STR(b, "");
+}
+
+static void test_layout_new(void) {
+    /* three 16 px rows with 8 px gaps, 4 px top margin, inside 160x80 */
+    T_CHECK(LCD_ROW_ADDR_Y + LCD_ROW_H <= 80);
+    T_CHECK(LCD_ROW_SSID_Y >= LCD_ROW_ADDR_Y + LCD_ROW_H);
+    T_CHECK(LCD_ROW_STATUS_Y >= LCD_ROW_SSID_Y + LCD_ROW_H);
+    T_CHECK(LCD_ROW_STATUS_Y + LCD_ROW_H <= 80);
+    T_CHECK(LCD_COL_X + LCD_COL_W <= 160);
+    /* the full-width column: 4 px inset on both sides of the 160 px panel */
+    T_EQ_INT(LCD_COL_X, 4);
+    T_EQ_INT(LCD_COL_W, 152);
+    T_EQ_INT(LCD_COL_X + LCD_COL_W, LCD_PANEL_W - LCD_COL_X);
+    T_EQ_INT(LCD_ROW_H, 16);
+    /* every row the painter will draw fits, measured on the pen the painter uses */
+    char a[40];
+    lcd_view_addr_line("192.168.1.225", a, sizeof a);
+    T_CHECK(pen_px(a, 1) <= LCD_COL_W);                       /* 118 px */
+    T_CHECK(pen_px("http://255.255.255.255", 1) <= LCD_COL_W);/* 135 px, the widest IPv4 */
+    T_CHECK(pen_px("http://192.168.4.1", 1) <= LCD_COL_W);    /* 104 px */
+    T_CHECK(pen_px("SilbapStick-A1B2", 1) <= LCD_COL_W);      /* 104 px */
+    T_CHECK(pen_px("PW:12345678", 1) <= LCD_COL_W);           /*  71 px */
+}
+
 static void test_layout(void) {
-    T_CHECK(LCD_QR_X + LCD_QR_W <= 160 && LCD_QR_Y + LCD_QR_H <= 80);
-    T_CHECK(LCD_COL_X + 90 <= 160);
-    T_CHECK(LCD_ROW_IP_Y + 16 <= 80);
-    T_CHECK(LCD_ROW_SSID_Y + 16 <= 80);
-    T_CHECK(LCD_ROW_STATUS_Y + 16 <= 80);
-    T_CHECK(LCD_ROW_IP_Y + 16 <= LCD_ROW_SSID_Y);
-    T_CHECK(LCD_ROW_SSID_Y + 16 <= LCD_ROW_STATUS_Y);
-    T_CHECK(LCD_QR_X + LCD_QR_W <= LCD_COL_X);
+    /* Task 1 moved the text to the full-width column; the QR box is still
+     * defined (Task 2 deletes it with paint_qr) and still inside the panel. */
+    T_CHECK(LCD_QR_X + LCD_QR_W <= LCD_PANEL_W && LCD_QR_Y + LCD_QR_H <= LCD_PANEL_H);
+    T_CHECK(LCD_COL_X + LCD_COL_W <= LCD_PANEL_W);
+    T_CHECK(LCD_ROW_IP_Y + LCD_ROW_H <= LCD_PANEL_H);
+    T_CHECK(LCD_ROW_SSID_Y + LCD_ROW_H <= LCD_PANEL_H);
+    T_CHECK(LCD_ROW_STATUS_Y + LCD_ROW_H <= LCD_PANEL_H);
+    T_CHECK(LCD_ROW_IP_Y + LCD_ROW_H <= LCD_ROW_SSID_Y);
+    T_CHECK(LCD_ROW_SSID_Y + LCD_ROW_H <= LCD_ROW_STATUS_Y);
     T_EQ_INT(LCD_QR_X, 0);
     T_EQ_INT(LCD_QR_Y, 7);
     T_EQ_INT(LCD_QR_W, 66);
     T_EQ_INT(LCD_QR_H, 66);
-    T_EQ_INT(LCD_COL_X, 70);
+    T_EQ_INT(LCD_COL_X, 4);
     T_EQ_INT(LCD_ROW_IP_Y, 4);
-    T_EQ_INT(LCD_ROW_SSID_Y, 24);
-    T_EQ_INT(LCD_ROW_STATUS_Y, 44);
+    T_EQ_INT(LCD_ROW_SSID_Y, 28);
+    T_EQ_INT(LCD_ROW_STATUS_Y, 52);
 }
 
 static void test_bars(void) {
@@ -326,23 +370,27 @@ static void test_ellipsize_px(void) {
 
 static void test_geometry_fits(void) {
     /* the QR the painter draws for a typical address must land inside the
-     * binding box and leave a real quiet zone */
+     * binding box and leave a real quiet zone.  Task 1 moved the text to the
+     * full-width column, so the box and the column overlap on purpose until
+     * Task 2 deletes paint_qr() and this test with it. */
     const int v2 = 25;
     int sc = qr_px_per_module(v2 + 8, LCD_QR_W);
     T_EQ_INT(sc, 2);
     T_CHECK(v2 * sc <= LCD_QR_W);
-    T_CHECK(LCD_QR_X + v2 * sc <= LCD_COL_X);      /* never under the text column */
+    T_CHECK(LCD_QR_X + v2 * sc <= LCD_PANEL_W);
 
     /* the status line: the painter uses the tight pen and closes the glyph gap
      * to 0 and the word gap to 4 when two words must fit.  "Connected Err" is
-     * then 75 px and with the 4 + 8 px lock 87 px, both inside the 90 px column.
-     * "Connecting Err" is 80 px without the lock (92 with it), so the words fit
-     * whole and only the lock yields.  That is why the error word is "Err":
-     * "Connected Error" needed 87 px with no room for the lock at all, and
-     * "Connecting Error" 92 px, which cut the link word. */
+     * then 75 px and with the 4 + 8 px lock 87 px.  "Connecting Err" is 80 px
+     * without the lock (92 with it), so the words fit whole and only the lock
+     * yields.  That is why the error word is "Err": "Connected Error" needed
+     * 87 px with no room for the lock at all, and "Connecting Error" 92 px,
+     * which cut the link word. */
     T_CHECK(pen_px("Connected", 0) + 4 + pen_px("Err", 0) <= LCD_COL_W);
     T_CHECK(pen_px("Connected", 0) + 4 + pen_px("Err", 0) + 4 + 8 <= LCD_COL_W);
     T_CHECK(pen_px("Connecting", 0) + 4 + pen_px("Err", 0) <= LCD_COL_W);
+    /* the widest status line, lock included, still fits the full-width column */
+    T_CHECK(pen_px("Connecting", 0) + 4 + pen_px("Err", 0) + 4 + 8 <= LCD_COL_W);
 }
 
 static void test_pen(void) {
@@ -355,13 +403,12 @@ static void test_pen(void) {
     T_EQ_INT(pen_span(' ', &first, &w), 0);          /* a blank glyph has no ink */
     T_EQ_INT(pen_span(0xAC00, &first, &w), 14);      /* 가 inks 14 of its 16 columns */
 
-    /* "192.168.1.225" at 8 px per cell is 104 px, which the 90 px column
-     * cannot take; on the tight pen it fits with a 1 px gap */
-    T_CHECK(font_text_px("192.168.1.225") > LCD_COL_W);
+    /* "192.168.1.225" at 8 px per cell is 104 px; the tight pen is what the
+     * painter draws with, and it is narrower than the cells suggest. */
+    T_CHECK(pen_px("192.168.1.225", 1) < font_text_px("192.168.1.225"));
     T_CHECK(pen_px("192.168.1.225", 1) <= LCD_COL_W);
-    /* the widest quad is the tight one: it fits only with the gap closed,
-     * which is what the painter tries before it would cut a digit */
-    T_CHECK(pen_px("255.255.255.255", 1) > LCD_COL_W);
+    /* the widest quad fits the full-width column with the gap still open */
+    T_CHECK(pen_px("255.255.255.255", 1) <= LCD_COL_W);
     T_CHECK(pen_px("255.255.255.255", 0) <= LCD_COL_W);
     T_EQ_INT(pen_px("", 1), 0);
     T_EQ_INT(pen_px(" ", 1), 4);
@@ -396,6 +443,8 @@ int main(void) {
     T_RUN(test_words_locked_only);
     T_RUN(test_words_setup_pw);
     T_RUN(test_diff);
+    T_RUN(test_addr_line);
+    T_RUN(test_layout_new);
     T_RUN(test_layout);
     T_RUN(test_bars);
     T_RUN(test_qr_scale);
