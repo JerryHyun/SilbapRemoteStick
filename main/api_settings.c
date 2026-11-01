@@ -121,7 +121,11 @@ static esp_err_t settings_post(httpd_req_t *req) {
     bool again = false;
     settings_merge_json(s_set, s_body, &again);   /* same input, same result: applies the touched fields only */
     memset(&t, 0, sizeof t);
-    if (rebuild) refresh_request(REFRESH_FORCED);
+    /* rename and lang are display-only: they change what the web list and the SPA show, never what the
+     * machine sees. A FORCED request would cut VBUS for RP_REPLUG_HOLD_MS and take the machine's disk away
+     * for 500 ms to no purpose, so they ask for the cheap re-count instead. `rebuild` still comes back true
+     * from settings_merge_json; it is accepted and ignored here so the merge stays one implementation. */
+    if (rebuild) refresh_request(REFRESH_CHANGED);
     return send_settings(req);
 }
 

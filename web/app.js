@@ -410,10 +410,10 @@ function renderSettings() {
     return;
   }
   var c = card(view, 'settings.title');
-  field(c, t('settings.rename'), checkbox(CFG.rename, function (v) { saveSetting({ rename: v }, true); }), true);
+  field(c, t('settings.rename'), checkbox(CFG.rename, function (v) { saveSetting({ rename: v }); }), true);
   c.appendChild(el('p', 'muted small', t('settings.rename_help')));
   field(c, t('settings.lang'), select([['ko', '한국어'], ['en', 'English'], ['zh', '简体中文'], ['ja', '日本語']], CFG.lang,
-    function (v) { saveSetting({ lang: v }, true); }));
+    function (v) { saveSetting({ lang: v }); }));
   c.appendChild(el('p', 'muted small', t('settings.lang_help')));
   field(c, t('settings.auto_refresh'), checkbox(CFG.auto_refresh, function (v) { saveSetting({ auto_refresh: v }); }), true);
   var bar = el('div', 'toolbar');
