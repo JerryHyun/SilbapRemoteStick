@@ -33,6 +33,7 @@ add_test(NAME test_web_decide COMMAND test_web_decide)
 add_test(NAME web_i18n COMMAND python3 -I ${CMAKE_CURRENT_SOURCE_DIR}/test_web_i18n.py ${CMAKE_SOURCE_DIR}/../../web)
 add_test(NAME web_assets COMMAND python3 -I ${CMAKE_CURRENT_SOURCE_DIR}/test_web_assets.py ${CMAKE_SOURCE_DIR}/../..)
 add_test(NAME web_banner COMMAND python3 -I ${CMAKE_CURRENT_SOURCE_DIR}/test_web_banner.py ${CMAKE_SOURCE_DIR}/../..)
+add_test(NAME help_text COMMAND python3 -I ${CMAKE_CURRENT_SOURCE_DIR}/test_help_text.py ${CMAKE_SOURCE_DIR}/../..)
 # Regression guard for the /api/upload stack overflow (see the script's header for what it cannot see).
 add_test(NAME stack_budget COMMAND python3 -I ${CMAKE_CURRENT_SOURCE_DIR}/test_stack_budget.py ${CMAKE_SOURCE_DIR}/../..)
 add_executable(test_fsops test_fsops.c ../../main/fsops.c)
