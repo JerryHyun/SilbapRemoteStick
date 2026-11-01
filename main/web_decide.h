@@ -3,6 +3,10 @@
 #include <stdint.h>
 /* PUBLIC: no password needed even when one is set. AUTH: Basic password required when pw_set. */
 typedef enum { WEB_PUBLIC, WEB_AUTH } web_access_t;
+/* Where GET / should send the browser: the SPA when the device has a network, the setup page while the portal is
+ * up. Pure so the redirect rule is pinned by the host test without an httpd. */
+typedef enum { WEB_ROOT_APP = 0, WEB_ROOT_SETUP = 1 } web_root_t;
+web_root_t web_root_target(bool setup_only);
 /* Pure middleware decision: 200 = let through, 403 = Host/Origin rejected, 401 = password needed.
  * Host is always checked; Origin (if present) for every method except GET/HEAD/OPTIONS/PROPFIND; then auth.
  * allowed: NULL-terminated host list (see wc_host_ok). salt/hash may be NULL when !pw_set. */

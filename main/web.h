@@ -23,6 +23,12 @@ void web_unroute(const char *uri, httpd_method_t m);
 /* True once web_start() has a running server. */
 bool web_started(void);
 
+/* True while the setup portal is up, so GET / must answer the redirect to /setup instead of the SPA. The strong
+ * definition lives in main/provision.c and returns its s_want; main/web.c provides a weak fallback returning false,
+ * the same pattern as the provision_start/stop hooks in main/netif.h. If provision.c is ever dropped from the build
+ * the linker picks the fallback and "/" serves the SPA in setup mode -- the old behaviour, not a crash. */
+bool web_setup_only(void);
+
 /* Runs fn(arg) in the HTTP server task (httpd_queue_work), so a route-table change never races a dispatch. Returns
  * ESP_ERR_INVALID_STATE when the server is not running yet. */
 esp_err_t web_run_in_server(void (*fn)(void *), void *arg);

@@ -294,6 +294,10 @@ static bool portal_sync(bool wait) {
     return ok;
 }
 
+/* Strong override of the weak hook declared in web.h: GET / answers the 302 to /setup exactly while the portal is
+ * wanted. s_want is set by provision_start and cleared by provision_stop, so the redirect cannot outlive the portal. */
+bool web_setup_only(void) { return s_want; }
+
 /* Called by web_start() once the server runs (the setup AP usually comes up before it). Queued, not waited for: boot
  * must not sit in app_main for the HTTP task. The portal is reachable as soon as the httpd task gets to the item. */
 void provision_web_ready(void) {

@@ -52,4 +52,8 @@ static void test_empty_origin(void) {
     T_EQ_INT(web_decide("POST","192.168.0.42","",NULL,false,NULL,NULL,WEB_AUTH,ok), 403);
     T_EQ_INT(web_decide("GET","192.168.0.42","",NULL,false,NULL,NULL,WEB_AUTH,ok), 200);
 }
-int main(void) { T_RUN(test_mutation_needs_same_origin); T_RUN(test_auth); T_RUN(test_password_length_boundary); T_RUN(test_empty_origin); T_DONE(); }
+static void test_root_target(void) {
+    T_EQ_INT(web_root_target(true),  WEB_ROOT_SETUP);   /* portal up: the Wi-Fi page */
+    T_EQ_INT(web_root_target(false), WEB_ROOT_APP);     /* joined: the file browser */
+}
+int main(void) { T_RUN(test_mutation_needs_same_origin); T_RUN(test_auth); T_RUN(test_password_length_boundary); T_RUN(test_empty_origin); T_RUN(test_root_target); T_DONE(); }

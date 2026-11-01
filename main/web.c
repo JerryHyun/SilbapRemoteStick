@@ -233,6 +233,10 @@ void web_unroute(const char *uri, httpd_method_t m) {
 
 bool web_started(void) { return s_srv != NULL; }
 
+/* Weak fallback for the setup-portal hook declared in web.h: provision.c replaces it with its s_want. Kept next to
+ * web_started because both answer "is the server in which state". */
+__attribute__((weak)) bool web_setup_only(void) { return false; }
+
 esp_err_t web_run_in_server(void (*fn)(void *), void *arg) {
     if (!s_srv) return ESP_ERR_INVALID_STATE;
     return httpd_queue_work(s_srv, fn, arg);
@@ -316,6 +320,21 @@ esp_err_t web_send_asset(httpd_req_t *req, const char *path) {
     return web_error(req, 404, "err.not_found");
 }
 
+/* GET / is the one address a user types by hand, so it must not open the file browser while there is no Wi-Fi:
+ * with the portal up it answers 302 to the absolute setup URL (the same target captive_redirect() uses, so the
+ * browser's Host header -- the AP address, a probe host or a name -- cannot point it elsewhere) and no-store keeps
+ * the redirect out of the cache after the device joins a network. /setup itself is served by setup_page_get(), which
+ * sends the asset directly and never comes back here, so the redirect cannot loop. */
+static esp_err_t root_get(httpd_req_t *req) {
+    if (web_root_target(web_setup_only()) == WEB_ROOT_SETUP) {
+        httpd_resp_set_status(req, "302 Found");
+        httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/setup");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+        return httpd_resp_send(req, NULL, 0);
+    }
+    return static_get(req);
+}
+
 static esp_err_t recovery_get(httpd_req_t *req) {
     const recov_t *r = recov_for_ui();
     char *b = s_page;                    /* static, like send_401: built and sent by one request at a time */
@@ -343,7 +362,7 @@ esp_err_t web_start(settings_t *s) {
     c.uri_match_fn = httpd_uri_match_wildcard;
     esp_err_t e = httpd_start(&s_srv, &c);
     if (e != ESP_OK) { ESP_LOGE(TAG, "httpd_start: %s", esp_err_to_name(e)); s_srv = NULL; return e; }
-    web_route("/", HTTP_GET, WEB_PUBLIC, static_get);
+    web_route("/", HTTP_GET, WEB_PUBLIC, root_get);
     web_route("/assets/*", HTTP_GET, WEB_PUBLIC, static_get);
     web_route("/api/recovery", HTTP_GET, WEB_PUBLIC, recovery_get);
     api_files_register(s);

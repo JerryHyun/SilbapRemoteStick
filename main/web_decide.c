@@ -2,6 +2,8 @@
 #include <string.h>
 #include "webcore.h"
 
+web_root_t web_root_target(bool setup_only) { return setup_only ? WEB_ROOT_SETUP : WEB_ROOT_APP; }
+
 /* Methods a browser can issue cross-origin without a CORS preflight, and which cannot change the volume. The
  * Origin check exists to stop a drive-by page from making the device *mutate* (CSRF); a read-only method has no
  * state to protect (HOST is still checked on every request, so DNS rebinding is refused, and a cross-origin
