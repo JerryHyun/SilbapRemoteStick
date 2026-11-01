@@ -112,7 +112,7 @@ void refresh_prepare_sd(void) {
 static TaskHandle_t s_task;
 static bool s_sd_ok;
 static bool s_fs_ok;                          /* refresh task only: the mounted volume is usable (last re-mount worked) */
-static uint32_t s_serial;                     /* CID serial of the card the volume was mounted for */
+static uint32_t s_serial;                     /* FAT volume serial of the volume the mount is for */
 static volatile uint32_t s_web_activity_ms;   /* last fsops mutation, stamped by refresh_activity() */
 static uint32_t s_last_remount_ms;            /* refresh task only */
 static volatile bool s_count_due;             /* a change (or a fresh mount) asked for a re-count */
@@ -344,7 +344,7 @@ static bool sd_inserted(void) {
     log_diag_once();
     s_sd_ok = true;
     s_fs_ok = true;
-    s_serial = sdcard_serial();
+    s_serial = sdcard_volume_serial();
     s_last_count_ms = 0;                          /* a new volume: count it on the next tick, not after COUNT_MIN_MS */
     s_count_due = true;
     status_set(false, true);
@@ -380,7 +380,7 @@ static void refresh_task(void *arg) {
 
     s_sd_ok = sdcard_present();
     s_fs_ok = s_sd_ok;
-    s_serial = s_sd_ok ? sdcard_serial() : 0;
+    s_serial = s_sd_ok ? sdcard_volume_serial() : 0;
     status_set(false, s_sd_ok);
     if (!s_sd_ok) { led_state(LED_RED); usb_msc_set_state(MSC_NO_MEDIUM); }
     else {
@@ -434,8 +434,11 @@ static void refresh_task(void *arg) {
             else if (write_ms && write_ms != s_replug_seen_write_ms) { req_ms = write_ms; why = "machine write"; }
 
             bool auto_ok = s_set && s_set->auto_refresh;
-            /* A volume that failed to re-mount is retried every tick: /sd answers EIO until it works again. */
-            remount_due = !s_fs_ok || (idle >= QUIET_MS && since_remount >= REMOUNT_MIN_MS && (auto_ok || forced));
+            /* A volume that failed to re-mount is retried, but not every tick: each attempt is three f_mount calls
+             * plus two CMD13s under sdcard_lock, and at TICK_MS 100 that would hold the disk against every READ10
+             * ten times a second forever. Retry on the same 3 s floor as a normal re-mount. */
+            remount_due = (!s_fs_ok && since_remount >= REMOUNT_MIN_MS) ||
+                          (idle >= QUIET_MS && since_remount >= REMOUNT_MIN_MS && (auto_ok || forced));
 
             /* rp_replug applies the debounce and the idle rule (automatic policy) and the forced cap, so there is
              * one rule for both paths, and a machine that reads continuously cannot starve the button. */
@@ -528,14 +531,15 @@ static void refresh_task(void *arg) {
                     missed = 0;
                     /* A card swapped inside one poll interval reads as present, so the presence test alone would
                      * keep a FATFS object whose geometry belongs to the previous card (vol_status() cannot see a
-                     * swap either: it never does I/O). The CID serial is free to read on the card object already
-                     * in hand, so compare it and treat a different card as a removal + insert. */
+                     * swap either: it never does I/O). Compare the boot sector's volume serial, re-read from the
+                     * partition: the CID cannot serve here, it is filled once at sdmmc_card_init() and never
+                     * refreshed. One 512-byte read every 2 s is the cost; a different serial is a removal+insert. */
                     uint32_t ser;
                     sdcard_lock();
-                    ser = sdcard_serial();
+                    ser = sdcard_volume_serial();
                     sdcard_unlock();
                     if (ser && s_serial && ser != s_serial) {
-                        ESP_LOGW(TAG, "a different card is in the slot (serial %08lx, was %08lx)",
+                        ESP_LOGW(TAG, "a different volume is in the slot (serial %08lx, was %08lx)",
                                  (unsigned long)ser, (unsigned long)s_serial);
                         sd_gone();
                     }
@@ -549,7 +553,11 @@ static void refresh_task(void *arg) {
         }
         if (s_sd_ok) {
             uint32_t lr = usb_msc_last_read_ms();
-            led_state(lr && (uint32_t)(now - lr) < BLINK_MS ? LED_BLUE : LED_GREEN);
+            /* A volume that is present but not mounted is an error the LED must keep showing: without this the
+             * green below (or the blue of a read) overwrites the red fs_broken() just set in the same pass, and
+             * led_state()'s dedupe stops red from coming back. */
+            if (!s_fs_ok) led_state(LED_RED);
+            else led_state(lr && (uint32_t)(now - lr) < BLINK_MS ? LED_BLUE : LED_GREEN);
         }
     }
 }

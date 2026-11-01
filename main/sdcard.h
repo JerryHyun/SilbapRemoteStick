@@ -25,7 +25,12 @@ const card_vol_t *sdcard_volume(void);
 #include "sdmmc_cmd.h"
 sdmmc_card_t *sdcard_card(void); /* NULL without a card */
 void      sdcard_bench(void);   /* dev build: starts a task that benchmarks raw reads 10 s later (aligned DMA vs unaligned buffer) */
-uint32_t  sdcard_serial(void);  /* card CID serial, for the volume serial mix; 0 without a card */
+/* Identity of the card the volume is currently mounted for, to notice a swap inside one poll interval.
+ * This is the FAT volume serial from the boot sector, not the CID: sdmmc_card_init() fills card->cid once and
+ * nothing refreshes it afterwards (sdmmc_get_status() is CMD13 and only returns card status), so a CID compare
+ * would never fire. Re-reading the boot sector costs one 512-byte read and is taken under sdcard_lock by the
+ * caller. 0 when nothing is mounted or the sector cannot be read. */
+uint32_t  sdcard_volume_serial(void);
 const char *sdcard_ff_drive(void); /* FatFs drive SD_MOUNT is mounted from ("0:"), for anything that needs the volume */
 void      sdcard_lock(void);    /* recursive mutex around every SD access */
 void      sdcard_unlock(void);

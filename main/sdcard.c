@@ -352,7 +352,21 @@ void sdcard_bench(void) {}
 void sdcard_bench(void) {}
 #endif
 
-uint32_t sdcard_serial(void) { return s_card ? (uint32_t)s_card->cid.serial : 0; }
+/* The FAT volume serial (boot sector offset 67 for FAT32, 39 for FAT12/16) of the volume currently mounted.
+ * Read straight from the partition's first sector, because that is the only identity that can change when the
+ * card is swapped: card->cid is filled by sdmmc_card_init() and never refreshed. Called under sdcard_lock. */
+uint32_t sdcard_volume_serial(void) {
+    if (!s_card) return 0;
+    uint8_t boot[SD_SECTOR_SIZE] __attribute__((aligned(4)));
+    if (sdmmc_read_sectors(s_card, boot, s_vol.first_lba, 1) != ESP_OK) return 0;
+    if (boot[510] != 0x55 || boot[511] != 0xAA) return 0;
+    if (boot[0] != 0xEB && boot[0] != 0xE9) return 0;      /* not a jump instruction: not a boot sector */
+    /* BS_FileSysType at 82 says which offset holds the serial; both are little-endian DWORDs. */
+    bool fat32 = boot[82] == 'F' && boot[83] == 'A' && boot[84] == 'T' && boot[85] == '3';
+    const int off = fat32 ? 67 : 39;
+    return (uint32_t)boot[off] | ((uint32_t)boot[off + 1] << 8) |
+           ((uint32_t)boot[off + 2] << 16) | ((uint32_t)boot[off + 3] << 24);
+}
 
 /* FatFs drive SD_MOUNT is mounted from ("0:"), for the catalog's f_readdir scan and for anything that
  * needs the volume the POSIX path maps to. One drive, one volume: s_pdrv. */
