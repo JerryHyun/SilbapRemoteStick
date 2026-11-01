@@ -10,6 +10,14 @@ static void test_norm_path(void) {
     T_CHECK(!wc_norm_path("/.silbap/catalog.bin", o, sizeof o));
     T_CHECK(!wc_norm_path("/x/.silbapX", o, sizeof o));
     T_CHECK(!wc_norm_path("/a\x01" "b", o, sizeof o));
+    /* '\' is a separator to FatFs (ff.c IsSeparator), so a path that hides one behind a segment
+     * test would resolve differently there than here: "\\.silbap\\log" normalised to itself and
+     * FatFs then opened .silbap/log; "..\\..\\x" escaped the root the same way. */
+    T_CHECK(!wc_norm_path("\\.silbap\\usb-diag.log", o, sizeof o));
+    T_CHECK(!wc_norm_path("..\\..\\etc", o, sizeof o));
+    T_CHECK(!wc_norm_path("EMB\\..\\..\\.silbap", o, sizeof o));
+    T_CHECK(!wc_norm_path("EMB/Embf\\x.jef", o, sizeof o));
+    T_CHECK(!wc_norm_path("a\\b", o, sizeof o));
     T_CHECK(wc_norm_path("/.hidden/x", o, sizeof o));
     T_CHECK(!wc_norm_path("/.SILBAP/x", o, sizeof o));
     T_CHECK(!wc_norm_path("/a/.Silbap", o, sizeof o));

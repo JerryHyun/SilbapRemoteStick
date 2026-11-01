@@ -42,8 +42,19 @@ static DSTATUS vol_initialize(BYTE pdrv) {
 }
 
 static DSTATUS vol_status(BYTE pdrv) {
-    (void)pdrv;                          /* sdcard_present() owns the CMD13 poll; see diskio_sdmmc.c */
-    return 0;
+    (void)pdrv;
+    /* FatFs calls this from validate() and from mount_volume()'s "already mounted" early-out. Returning 0
+     * unconditionally (as the old code did) means the early-out can serve a FATFS object whose cached BPB,
+     * cluster size and FAT base belong to a card that is no longer in the slot, after a fast swap the 2 s
+     * presence poll did not see. So report the one thing this layer knows without I/O: no card object at all.
+     *
+     * Deliberately NOT a CMD13 here: diskio_sdmmc.c's ff_sdmmc_status() only polls when the caller enabled
+     * s_disk_status_check_en (it is off by default, ff_diskio_register_sdmmc sets it false), because status is
+     * called on every validate()/mount_volume(). Polling here would double the poll the presence task already
+     * does every 2 s and could stall a READ10 for a card that is merely busy. The swap window is closed by the
+     * refresh task instead: it unmounts on two missed probes, and a re-mount (or the CID mismatch path) rebuilds
+     * the FATFS object. */
+    return s_card ? 0 : STA_NOINIT;
 }
 
 static bool vol_in_range(uint32_t sector, UINT count) {

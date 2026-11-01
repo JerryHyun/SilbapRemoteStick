@@ -2,6 +2,17 @@
 #include <string.h>
 #include "webcore.h"
 
+/* Methods a browser can issue cross-origin without a CORS preflight, and which cannot change the volume. The
+ * Origin check exists to stop a drive-by page from making the device *mutate* (CSRF); a read-only method has no
+ * state to protect (HOST is still checked on every request, so DNS rebinding is refused, and a cross-origin
+ * response cannot be read by the page without CORS headers, which this server never sends).
+ *
+ * PROPFIND is deliberately in this list: webdav.c dispatches it to dav_propfind, which only stats, opendirs and
+ * streams XML -- it never opens a file for writing and never calls fsops. The only cross-origin effect is that the
+ * Origin header is not required, and a cross-origin PROPFIND cannot read the answer. LOCK/PROPPATCH/UNLOCK look
+ * like they might belong here but are handled by dav_lock/dav_proppatch, which answer without touching the card;
+ * they are NOT listed because they are not methods a browser sends as a simple request, so the Origin check stays
+ * on for them at no cost. Keep this list minimal: any method that reaches fsops or a card write must not be here. */
 static bool is_safe_method(const char *m) {
     return !strcmp(m, "GET") || !strcmp(m, "HEAD") || !strcmp(m, "OPTIONS") || !strcmp(m, "PROPFIND");
 }

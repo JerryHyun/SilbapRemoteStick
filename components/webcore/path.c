@@ -30,7 +30,11 @@ bool wc_norm_path(const char *rel, char *out, size_t out_sz) {
         if (starts_silbap(rel, len)) return false;
         for (size_t i = 0; i < len; i++) {
             unsigned char c = (unsigned char)rel[i];
-            if (c < 0x20 || c == 0x7F) return false;
+            /* '\' is a path separator to FatFs (ff.c: IsSeparator(c) is '/' or '\\'), so accepting it here
+             * would let "\\.silbap\\log" or "..\\..\\x" through: the segment walk below would see one long
+             * name, pass the .silbap and ".." tests, and FatFs would then split it on the backslash itself.
+             * Reject the byte outright; no file name this device creates needs it. */
+            if (c < 0x20 || c == 0x7F || c == '\\') return false;
         }
         size_t need = len + (n ? 1 : 0);
         if (n + need > WC_PATH_MAX - 1 || n + need + 1 > out_sz) return false;

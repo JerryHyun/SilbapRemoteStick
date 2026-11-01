@@ -38,6 +38,14 @@ static fs_hooks_t s_h;
 static bool s_ready;
 uint32_t fs_stat_probes;
 
+/* Web mutations between their first and last step (see fsops.h). Only this file's task structure matters: every
+ * increment has exactly one decrement on every exit path, so the count cannot drift. */
+static uint32_t s_inflight;
+
+void fs_inflight_enter(void) { s_inflight++; }
+void fs_inflight_leave(void) { if (s_inflight) s_inflight--; }
+uint32_t fs_inflight(void) { return s_inflight; }
+
 static void lock(void)      { if (s_h.lock) s_h.lock(); }
 static void unlock(void)    { if (s_h.unlock) s_h.unlock(); }
 static void close_cat(void) { if (s_h.close_catalog_files) s_h.close_catalog_files(); }
@@ -98,8 +106,9 @@ static bool is_dir(const char *abs) { struct stat st; return stat(abs, &st) == 0
 
 int fs_mkdir(const char *rel) {
     if (!s_ready) return FS_EIO;
+    fs_inflight_enter();
     work_t *w = malloc(sizeof *w);
-    if (!w) return FS_EIO;
+    if (!w) { fs_inflight_leave(); return FS_EIO; }
     int rc = FS_EINVAL;
     if (!wc_norm_path(rel, w->rel, sizeof w->rel - 1) || !w->rel[0]) goto out;
     const char *base = split(w->rel);
@@ -110,14 +119,16 @@ int fs_mkdir(const char *rel) {
     unlock();
     if (rc == FS_OK) changed();                          /* the folder shows up on the disk; nothing served is touched */
 out:
+    fs_inflight_leave();
     free(w);
     return rc;
 }
 
 int fs_rename(const char *rel, const char *new_name) {
     if (!s_ready) return FS_EIO;
+    fs_inflight_enter();
     work_t *w = malloc(sizeof *w);
-    if (!w) return FS_EIO;
+    if (!w) { fs_inflight_leave(); return FS_EIO; }
     int rc = FS_EINVAL;
     if (!wc_norm_path(rel, w->rel, sizeof w->rel - 1) || !w->rel[0]) goto out;
     if (!new_name || !wc_sd_safe_name(new_name, w->name, sizeof w->name)) goto out;
@@ -136,14 +147,16 @@ int fs_rename(const char *rel, const char *new_name) {
     unlock();
     if (rc == FS_OK && !same) changed();
 out:
+    fs_inflight_leave();
     free(w);
     return rc;
 }
 
 int fs_move(const char *rel, const char *dst_dir_rel) {
     if (!s_ready) return FS_EIO;
+    fs_inflight_enter();
     work_t *w = malloc(sizeof *w);
-    if (!w) return FS_EIO;
+    if (!w) { fs_inflight_leave(); return FS_EIO; }
     int rc = FS_EINVAL;
     if (!wc_norm_path(rel, w->rel, sizeof w->rel - 1) || !w->rel[0]) goto out;
     if (!dst_dir_rel || !wc_norm_path(dst_dir_rel, w->dst, sizeof w->dst - 1)) goto out;
@@ -163,6 +176,7 @@ int fs_move(const char *rel, const char *dst_dir_rel) {
     unlock();
     if (rc == FS_OK && !same) changed();
 out:
+    fs_inflight_leave();
     free(w);
     return rc;
 }
@@ -229,8 +243,9 @@ int fs_delete(const char *rel, uint32_t *removed_files) {
     uint32_t files = 0;
     if (removed_files) *removed_files = 0;
     if (!s_ready) return FS_EIO;
+    fs_inflight_enter();
     work_t *w = malloc(sizeof *w);
-    if (!w) return FS_EIO;
+    if (!w) { fs_inflight_leave(); return FS_EIO; }
     int rc = FS_EINVAL;
     bool any = false;
     if (!wc_norm_path(rel, w->rel, sizeof w->rel - 1) || !w->rel[0] || !absp(w->a, w->rel, NULL)) goto out;
@@ -250,6 +265,7 @@ int fs_delete(const char *rel, uint32_t *removed_files) {
 out:
     if (any) changed();
     if (removed_files) *removed_files = files;
+    fs_inflight_leave();
     free(w);
     return rc;
 }
@@ -268,6 +284,7 @@ int fs_upload_begin(const char *dir_rel, const char *name, uint64_t size_hint, f
     if (!out) return FS_EINVAL;
     *out = NULL;
     if (!s_ready) return FS_EIO;
+    fs_inflight_enter();                                  /* the temp file stays open until commit/abort */
     fs_upload_t *u = malloc(sizeof *u);
     work_t *w = malloc(sizeof *w);
     int rc = FS_EIO;
@@ -298,6 +315,7 @@ int fs_upload_begin(const char *dir_rel, const char *name, uint64_t size_hint, f
     *out = u;
     return FS_OK;
 fail:
+    fs_inflight_leave();
     free(u);
     free(w);
     return rc;
@@ -352,6 +370,7 @@ void fs_upload_abort(fs_upload_t *u) {
     unlink(u->tmp);
     unlock();
     free(u);
+    fs_inflight_leave();                                 /* the matching enter was in fs_upload_begin */
 }
 
 /* Writes what is buffered and closes the temp file (FatFs writes the size into the directory entry on close). */
@@ -409,6 +428,7 @@ int fs_upload_commit(fs_upload_t *u, int64_t mtime, char *final_name, size_t fn_
     if (final_name && fn_sz) snprintf(final_name, fn_sz, "%s", w->name);
     free(u);
     free(w);
+    fs_inflight_leave();
     return FS_OK;
 fail:
     fs_upload_abort(u);                                  /* fd already closed: removes the temp file */
@@ -440,14 +460,20 @@ int fs_upload_commit_replace(fs_upload_t *u, int64_t mtime, bool *replaced) {
         if (rc == FS_OK) {
             set_mtime(w->b, mtime);
             if (had) (void)unlink(w->t);                 /* a leftover "up-*-old" goes at the next boot */
-        } else if (had && rename(w->t, w->b) == 0) had = false;
+        } else if (had && rename(w->t, w->b) == 0) {
+            had = false;                                 /* put back: the destination is as it was */
+        }
     }
     unlock();
-    if (rc == FS_OK || had) changed();
+    /* changed() only when the volume is what the caller asked for: a failed put-back leaves the destination missing
+     * (the old bytes are in the parked up-*-old, removed by fs_cleanup_tmp / prepare_sd at the next boot), and
+     * telling the machine to re-read a directory the web just broke would make it show a vanished file. */
+    if (rc == FS_OK) changed();
     if (rc) goto fail;
     if (replaced) *replaced = had;
     free(u);
     free(w);
+    fs_inflight_leave();
     return FS_OK;
 fail:
     fs_upload_abort(u);

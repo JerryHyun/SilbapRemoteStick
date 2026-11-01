@@ -51,6 +51,13 @@ int  fs_upload_commit(fs_upload_t *u, int64_t mtime, char *final_name, size_t fn
  * whether a file was replaced. mtime 0 = hooks->now(). Always consumes u: on failure the temp file is removed. */
 int  fs_upload_commit_replace(fs_upload_t *u, int64_t mtime, bool *replaced);
 void fs_upload_abort(fs_upload_t *u);    /* closes and removes the temp file; NULL is fine */
+/* How many web operations currently hold the volume open: an upload between begin and commit/abort, a delete,
+ * rename, move or mkdir between its first and last step, or a WebDAV GET streaming an open FIL (enter/leave).
+ * A coherency re-mount drops the FATFS object without flushing it, so it must never run while this is non-zero. */
+uint32_t fs_inflight(void);
+/* WebDAV GET: brackets the whole stream (open -> close), so a re-mount cannot invalidate the FIL mid-body. */
+void fs_inflight_enter(void);
+void fs_inflight_leave(void);
 extern uint32_t fs_stat_probes;          /* diagnostics/tests: name probes made by fs_upload_commit */
 void fs_cleanup_tmp(void);               /* boot: removes tmp/up-* (keeps catalog.new / names.new) */
 /* Firmware only (main/fsops_esp.c): fs_init on SD_MOUNT and SILBAP_DIR "/tmp" with sdcard_lock/unlock,

@@ -187,7 +187,10 @@ static esp_err_t list_get(httpd_req_t *req) {
     return httpd_resp_send_chunk(req, NULL, 0);
 }
 
-/* ---- GET /api/count ---- */
+/* ---- GET /api/count ----
+ * Counts exactly what /api/list shows (the same rules refresh.c's header walk uses): "." and ".." skipped, names
+ * starting with ".silbap" skipped (never exposed), fs_hidden_name() names skipped. Without them the delete
+ * confirmation would promise to remove entries the listing never showed. */
 typedef struct { uint32_t files, dirs; } counts_t;
 #define COUNT_MAX_DEPTH 24
 enum { CNT_OK = 0, CNT_DEEP, CNT_IO };
@@ -202,6 +205,8 @@ static int count_dir(size_t len, int depth, counts_t *c) {
     ent_t *e = malloc(sizeof *e);
     if (!e) ok = CNT_IO;
     while (ok == CNT_OK && dir_next(d, s_cpath, e)) {
+        if (!strncmp(e->name, ".silbap", 7)) continue;   /* never exposed */
+        if (fs_hidden_name(e->name)) continue;           /* the listing hides these too */
         if (e->dir) {
             c->dirs++;
             size_t nl = strlen(e->name);

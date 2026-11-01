@@ -269,6 +269,12 @@ static esp_err_t dav_get(httpd_req_t *req, dav_t *w) {
         if (fd >= 0 && first && lseek(fd, (off_t)first, SEEK_SET) != (off_t)first) { close(fd); fd = -1; }
         sdcard_unlock();
         if (fd < 0) return fail_req(req, "500 Internal Server Error");
+        /* The open FIL stays valid until close: a coherency re-mount drops FatFs's whole cached state (and does
+         * not flush it), so a re-mount in the middle of this stream would invalidate the FIL and truncate the body
+         * after Content-Length was sent. Bracket the whole stream; the refresh task skips its re-mount while the
+         * counter is non-zero and retries next tick. This is the item that keeps a resume/retry honest too. */
+        refresh_activity();
+        fs_inflight_enter();
     }
     /* Raw head: httpd_resp_send_chunk would add chunked encoding, and HEAD must carry the real Content-Length. */
     char lm[40], cr[80] = "";
@@ -291,7 +297,7 @@ static esp_err_t dav_get(httpd_req_t *req, dav_t *w) {
         ok = send_all(req, w->buf, (size_t)r);
         len -= (uint64_t)r;
     }
-    if (fd >= 0) { sdcard_lock(); close(fd); sdcard_unlock(); }
+    if (fd >= 0) { sdcard_lock(); close(fd); sdcard_unlock(); fs_inflight_leave(); }
     return ok ? ESP_OK : ESP_FAIL;
 }
 

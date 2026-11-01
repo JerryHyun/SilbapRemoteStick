@@ -66,6 +66,7 @@
  "banner.hidden": "{n}개 항목이 미싱에 보이지 않습니다.",
  "banner.no_clock": "시계가 아직 맞춰지지 않았습니다. 파일 날짜가 틀릴 수 있습니다.",
  "banner.fat32": "FAT32만 지원합니다. SD 카드를 FAT32로 포맷해 주세요.",
+ "banner.fs_broken": "카드를 다시 마운트하지 못했습니다. 카드를 빼서 다시 넣어 주세요. 계속되면 카드를 확인해 주세요.",
  "banner.volume_low": "저장 공간이 512MB 미만입니다. 새 디자인을 저장하려면 파일을 지우세요.",
  "banner.setup_applied": "설정 파일을 적용했어요.",
  "settings.title": "일반",

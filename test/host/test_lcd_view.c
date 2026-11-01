@@ -67,6 +67,50 @@ static void test_words_locked_only(void) {
     T_CHECK(v.locked);
 }
 
+/* Setup mode: the AP password must be on the glass or nobody can join the AP.
+ * settings.h promises it "stays what is printed/known", so "printed" is this. */
+static void test_words_setup_pw(void) {
+    lcd_view_t v = view("192.168.4.1", "SilbapStick-A1B2", -1, true, false, false, false);
+    strcpy(v.ap_pw, "12345678");
+    const char *w[2];
+    T_EQ_INT(lcd_view_words(&v, w, 2), 2);
+    T_EQ_STR(w[0], "PW:");
+    T_EQ_STR(w[1], "12345678");
+
+    /* It wins over the link word in every combination: there is no card work and
+     * no user password to report while the setup AP is up. */
+    v.error = true;
+    T_EQ_INT(lcd_view_words(&v, w, 2), 2); T_EQ_STR(w[0], "PW:");
+    v.locked = true;
+    T_EQ_INT(lcd_view_words(&v, w, 2), 2); T_EQ_STR(w[1], "12345678");
+    v.connected = false; v.connecting = true;
+    T_EQ_INT(lcd_view_words(&v, w, 2), 2); T_EQ_STR(w[0], "PW:");
+
+    /* capacity: one slot gets the label only, never a bare password */
+    T_EQ_INT(lcd_view_words(&v, w, 1), 1); T_EQ_STR(w[0], "PW:");
+    T_EQ_INT(lcd_view_words(&v, w, 0), 0);
+
+    /* clearing the field returns the normal link word */
+    v.ap_pw[0] = 0;
+    v.error = false; v.locked = false; v.connecting = false; v.connected = true;
+    T_EQ_INT(lcd_view_words(&v, w, 2), 1); T_EQ_STR(w[0], "Connected");
+
+    /* the password is never cut: "PW:" + gap + 8 digits fits the 90 px column on the tight pen */
+    T_CHECK(pen_px("PW:", 0) + 4 + pen_px("12345678", 0) <= LCD_COL_W);
+
+    /* a change of password alone repaints the status line, and so does appearing/disappearing */
+    lcd_shown_t shown; memset(&shown, 0, sizeof shown);
+    shown.v = view("192.168.4.1", "SilbapStick-A1B2", -1, true, false, false, false);
+    strcpy(shown.v.ap_pw, "12345678");
+    shown.qr_valid = true;
+    lcd_view_t want = shown.v;
+    T_EQ_INT(lcd_view_diff(&shown, &want), 0);
+    strcpy(want.ap_pw, "87654321");
+    T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_STATUS);
+    want.ap_pw[0] = 0;
+    T_EQ_INT(lcd_view_diff(&shown, &want), LCD_R_STATUS);
+}
+
 static void test_diff(void) {
     lcd_shown_t shown;
     lcd_view_t want;
@@ -350,6 +394,7 @@ static void test_pen(void) {
 int main(void) {
     T_RUN(test_words);
     T_RUN(test_words_locked_only);
+    T_RUN(test_words_setup_pw);
     T_RUN(test_diff);
     T_RUN(test_layout);
     T_RUN(test_bars);

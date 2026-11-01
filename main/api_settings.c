@@ -85,6 +85,7 @@ static esp_err_t status_get(httpd_req_t *req) {
     wc_json_num(&w, "total_kb", total_kb);
     wc_json_bool(&w, "busy", st.busy);
     wc_json_bool(&w, "sd_ok", st.sd_ok);
+    wc_json_bool(&w, "fs_ok", st.started ? st.fs_ok : st.sd_ok);
     wc_json_bool(&w, "over_limit", false);
     wc_json_bool(&w, "low_power", net_low_power());
     wc_json_bool(&w, "time_synced", timekeep_synced());
@@ -270,7 +271,8 @@ static esp_err_t diag_get(httpd_req_t *req) {
 void api_settings_register(settings_t *s) {
     s_set = s;
     web_route("/api/status", HTTP_GET, WEB_PUBLIC, status_get);
-    web_route("/api/diag", HTTP_GET, WEB_AUTH, diag_get);    web_route("/api/help", HTTP_GET, WEB_PUBLIC, help_get);
+    web_route("/api/diag", HTTP_GET, WEB_AUTH, diag_get);
+    web_route("/api/help", HTTP_GET, WEB_PUBLIC, help_get);
     web_route("/api/settings", HTTP_GET, WEB_AUTH, settings_get);
     web_route("/api/settings", HTTP_POST, WEB_AUTH, settings_post);
     web_route("/api/password", HTTP_POST, WEB_AUTH, password_post);

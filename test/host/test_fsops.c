@@ -91,6 +91,42 @@ static void test_upload_abort_leaves_no_file(void) {
     fs_cleanup_tmp(); T_EQ_INT(count_tmp(), 0); T_CHECK(!exists("y.jef"));
     fs_upload_abort(u);   /* (test only: release the handle; its temp file is already gone) */
 }
+
+/* fs_inflight() is what keeps the refresh task from dropping FatFs's dirty sector window under an open
+ * upload (f_mount(NULL) does not sync). It must be exactly 1 for the whole life of an upload and 0 again
+ * after it ends, by commit or by abort, and never negative. */
+static void test_inflight_counter(void) {
+    fresh();
+    T_EQ_INT((int)fs_inflight(), 0);
+    fs_upload_t *u; char fn[300];
+    T_EQ_INT(fs_upload_begin("", "a.jef", 4, &u), FS_OK);
+    T_EQ_INT((int)fs_inflight(), 1);
+    fs_upload_write(u, "abcd", 4);
+    T_EQ_INT((int)fs_inflight(), 1);              /* still one, not one per chunk */
+    T_EQ_INT(fs_upload_commit(u, 0, fn, sizeof fn), FS_OK);
+    T_EQ_INT((int)fs_inflight(), 0);
+
+    T_EQ_INT(fs_upload_begin("", "b.jef", 1, &u), FS_OK);
+    fs_upload_write(u, "x", 1);
+    T_EQ_INT((int)fs_inflight(), 1);
+    fs_upload_abort(u);
+    T_EQ_INT((int)fs_inflight(), 0);
+
+    /* A begin that fails (no space) must not leak a count. */
+    free_b = 0;
+    T_EQ_INT(fs_upload_begin("", "c.jef", 1, &u), FS_ENOSPC);
+    T_EQ_INT((int)fs_inflight(), 0);
+    free_b = 1 << 30;
+
+    /* abort(NULL) is a no-op and must not decrement. */
+    fs_upload_abort(NULL);
+    T_EQ_INT((int)fs_inflight(), 0);
+
+    /* The short mutations bracket themselves and must leave it at 0. */
+    T_EQ_INT(fs_mkdir("d"), FS_OK); T_EQ_INT((int)fs_inflight(), 0);
+    T_EQ_INT(fs_rename("a.jef", "a2.jef"), FS_OK); T_EQ_INT((int)fs_inflight(), 0);
+    T_EQ_INT(fs_delete("a2.jef", NULL), FS_OK); T_EQ_INT((int)fs_inflight(), 0);
+}
 static void test_upload_conflict_and_space(void) {
     fresh(); mkf("rose.jef", 1); fs_upload_t *u; char fn[300];
     T_EQ_INT(fs_upload_begin("", "rose.jef", 3, &u), FS_OK); fs_upload_write(u, "abc", 3);
@@ -239,6 +275,7 @@ int main(void) {
     T_RUN(test_close_before_mutate);
     T_RUN(test_activity_hook_optional);
     T_RUN(test_upload_abort_leaves_no_file);
+    T_RUN(test_inflight_counter);
     T_RUN(test_upload_conflict_and_space);
     T_RUN(test_upload_odd_names);
     T_RUN(test_move_into_self);

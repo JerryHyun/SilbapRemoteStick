@@ -367,12 +367,19 @@ static void sample(lcd_view_t *want, lcd_state_t *st) {
     if (!want->ssid[0]) {
         copy_str(want->ssid, sizeof want->ssid, st->s.wifi_ssid);
     }
-    /* Setup mode: there is no signal to report, so no bars are drawn. */
+    /* Setup mode: there is no signal to report, so no bars are drawn. The AP password is shown instead of the
+     * link word (the help text tells the user it is on the screen); it comes from the same settings copy that
+     * was just re-read. Empty outside setup mode, so lcd_view_words keeps its normal contract. */
     want->bars = (ns == NET_SETUP) ? -1 : lcd_view_bars_from_rssi(net_rssi(), connected);
+    if (ns == NET_SETUP) {
+        copy_str(want->ap_pw, sizeof want->ap_pw, st->s.ap_pw);
+    }
     want->connected = connected;
     want->connecting = connecting;
     want->error = lcd_view_should_error(sd_ok, missing_ms);
-    want->locked = st->s.pw_set;
+    /* No padlock in setup mode: there is no web password yet (first boot) and the status row belongs to the AP
+     * password. */
+    want->locked = st->s.pw_set && ns != NET_SETUP;
 }
 
 static bool take_published(lcd_view_t *out) {

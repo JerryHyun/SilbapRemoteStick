@@ -111,6 +111,8 @@ void refresh_prepare_sd(void) {
 
 static TaskHandle_t s_task;
 static bool s_sd_ok;
+static bool s_fs_ok;                          /* refresh task only: the mounted volume is usable (last re-mount worked) */
+static uint32_t s_serial;                     /* CID serial of the card the volume was mounted for */
 static volatile uint32_t s_web_activity_ms;   /* last fsops mutation, stamped by refresh_activity() */
 static uint32_t s_last_remount_ms;            /* refresh task only */
 static volatile bool s_count_due;             /* a change (or a fresh mount) asked for a re-count */
@@ -172,11 +174,28 @@ static void status_counts_set(uint32_t files, uint32_t dirs) {
 }
 
 static void status_set(bool busy, bool sd_ok) {
+    bool fs_ok = sd_ok && s_fs_ok;
     portENTER_CRITICAL(&s_mux);
-    s_status.busy = busy; s_status.sd_ok = sd_ok; s_status.started = true;
-    if (!sd_ok) s_status.files = s_status.dirs = 0;   /* no card, no contents: never report the last card's */
+    s_status.busy = busy; s_status.sd_ok = sd_ok; s_status.fs_ok = fs_ok; s_status.started = true;
+    if (!fs_ok) s_status.files = s_status.dirs = 0;   /* no usable volume, no contents: never report the last card's */
     portEXIT_CRITICAL(&s_mux);
 }
+
+/* The volume is no longer usable although the card is still in the slot: a re-mount failed twice. Keep the card
+ * (the presence poll retries the mount), but stop claiming /sd works: every access now returns EIO. */
+/* LED colours. Declared here because fs_broken() below uses LED_RED and an enumerator cannot be
+ * forward-declared; led_state() itself is defined further down. */
+enum { LED_YELLOW, LED_GREEN, LED_BLUE, LED_RED };
+static void led_state(int st);                 /* defined below */
+
+static void fs_broken(void) {
+    bool had = s_fs_ok;
+    s_fs_ok = false;
+    status_set(false, s_sd_ok);
+    led_state(LED_RED);
+    if (had) ESP_LOGE(TAG, "the volume is not mounted after a failed re-mount: file operations fail until it recovers");
+}
+
 
 /* ---- counting the volume ----
  * One depth-first walk from SD_MOUNT, with exactly the rules /api/list applies, so the header numbers and the
@@ -271,8 +290,9 @@ static void count_volume(void) {
 
 
 /* ---- LED: yellow while mounting, green idle, blue while the PC reads, red on errors ---- */
+/* The enum is up here, not next to led_state() below, because fs_broken() (which precedes the LED section)
+ * uses LED_RED and an enumerator cannot be forward-declared. */
 static int s_led = -1;
-enum { LED_YELLOW, LED_GREEN, LED_BLUE, LED_RED };
 static void led_state(int st) {
     if (st == s_led) return;
     s_led = st;
@@ -305,6 +325,8 @@ static void sd_gone(void) {
     usb_msc_set_volume(NULL);
     sdcard_unmount();
     s_sd_ok = false;
+    s_fs_ok = false;
+    s_serial = 0;
     status_set(false, false);
     led_state(LED_RED);
 }
@@ -321,6 +343,8 @@ static bool sd_inserted(void) {
     ESP_LOGI(TAG, "SD card inserted");
     log_diag_once();
     s_sd_ok = true;
+    s_fs_ok = true;
+    s_serial = sdcard_serial();
     s_last_count_ms = 0;                          /* a new volume: count it on the next tick, not after COUNT_MIN_MS */
     s_count_due = true;
     status_set(false, true);
@@ -355,6 +379,8 @@ static void refresh_task(void *arg) {
     int missed = 0;
 
     s_sd_ok = sdcard_present();
+    s_fs_ok = s_sd_ok;
+    s_serial = s_sd_ok ? sdcard_serial() : 0;
     status_set(false, s_sd_ok);
     if (!s_sd_ok) { led_state(LED_RED); usb_msc_set_state(MSC_NO_MEDIUM); }
     else {
@@ -372,8 +398,17 @@ static void refresh_task(void *arg) {
         /* Coherency: FatFs caches the FAT and the directory window in the FATFS object, while the machine writes
          * the same volume as raw sectors over USB MSC. Once the bus is quiet, drop those caches by mounting the
          * FATFS object again, so the web lists what the machine saved and the machine sees what the web wrote.
-         * Not while a transfer or an upload is in flight: s_web_activity_ms covers every fs_* mutation, the
-         * upload chunks included. The MSC state does not change: the host sees the same disk throughout.
+         * The MSC state does not change: the host sees the same disk throughout.
+         *
+         * Two things can make that re-mount destructive, and both are checked here:
+         *  - a web operation in flight (fs_inflight(): an open upload temp file, a delete/rename/move/mkdir
+         *    between its steps, a WebDAV GET streaming a FIL). f_mount(NULL) does not flush the sector window
+         *    (ff.c f_mount), so it would drop a dirty FAT/directory sector and invalidate the open object. The
+         *    activity stamps cannot see "still open" (an upload that stalled 4 s ago has an old stamp), so the
+         *    counter is the guard; the re-mount waits for the next tick.
+         *  - automatic refresh off: the re-mount is as disruptive to the machine as the VBUS cycle (it invalidates
+         *    every open object at once) and the setting exists to stop exactly that, so only a forced request
+         *    re-mounts. A broken volume is the exception: recovery is retried every tick regardless.
          *
          * Re-enumeration rides on the same quiet window, and after the re-mount: FatFs must have re-read the FAT
          * before the host is told to re-read the directory, or the host would cache the old one again. It runs for
@@ -385,7 +420,6 @@ static void refresh_task(void *arg) {
             const uint32_t stamps[] = { usb_msc_last_read_ms(), usb_msc_last_write_ms(), s_web_activity_ms };
             uint32_t idle = since_last(now, stamps, sizeof stamps / sizeof stamps[0]);
             uint32_t since_remount = since_last(now, &s_last_remount_ms, 1);
-            remount_due = idle >= QUIET_MS && since_remount >= REMOUNT_MIN_MS;
 
             /* What asks for a replug, newest first: the forced request, else the newest change not yet shown to
              * the host. A stamp of 0 is "never", so an unchanged disk asks for nothing. */
@@ -399,9 +433,12 @@ static void refresh_task(void *arg) {
             else if (web_ms && web_ms != s_replug_seen_web_ms) { req_ms = web_ms; why = "web change"; }
             else if (write_ms && write_ms != s_replug_seen_write_ms) { req_ms = write_ms; why = "machine write"; }
 
+            bool auto_ok = s_set && s_set->auto_refresh;
+            /* A volume that failed to re-mount is retried every tick: /sd answers EIO until it works again. */
+            remount_due = !s_fs_ok || (idle >= QUIET_MS && since_remount >= REMOUNT_MIN_MS && (auto_ok || forced));
+
             /* rp_replug applies the debounce and the idle rule (automatic policy) and the forced cap, so there is
              * one rule for both paths, and a machine that reads continuously cannot starve the button. */
-            bool auto_ok = s_set && s_set->auto_refresh;
             bool replug_due = req_ms &&
                 rp_replug(now, req_ms, usb_msc_last_read_ms(), forced, auto_ok, s_last_replug_ms) == RP_RUN;
             /* "still waiting" is only true when the policy would ever let it run: with automatic replug off an
@@ -413,12 +450,27 @@ static void refresh_task(void *arg) {
                          why, (unsigned)since_last(now, &stamps[0], 1), (unsigned)(now - req_ms));
             }
 
+            /* The re-mount drops FatFs's whole cached state without flushing it: never while a web operation
+             * still holds the volume open. Both paths wait; the request stays armed. */
+            uint32_t inflight = fs_inflight();
+            if ((remount_due || replug_due) && inflight) {
+                ESP_LOGD(TAG, "%u web operation(s) in flight: re-mount and replug deferred", (unsigned)inflight);
+                remount_due = false;
+                replug_due = false;
+            }
+
             /* Re-mount first, then the VBUS cycle: the host must re-read a FAT this side has already re-read. A
-             * re-mount that fails leaves both pending (the request stays armed) and retries on the next tick,
-             * rather than taking the disk away to show the host a disk whose caches were not refreshed. */
+             * re-mount that fails leaves the request armed and retries on the next tick, rather than taking the
+             * disk away to show the host a disk whose caches were not refreshed. */
             if (remount_due || replug_due) {
                 esp_err_t e = sdcard_remount();
                 if (e == ESP_OK) {
+                    if (!s_fs_ok) {
+                        s_fs_ok = true;
+                        status_set(false, true);
+                        s_count_due = true;      /* the volume is readable again: show what is on it */
+                        ESP_LOGI(TAG, "the volume is mounted again: /sd is usable");
+                    }
                     s_last_remount_ms = now;
                     /* The machine saved over USB, behind FatFs's back, so no fs_* mutation told us: the files it
                      * wrote are counted from the volume the re-mount just re-read. Quiet-gated by the 3 s rule, so
@@ -428,6 +480,14 @@ static void refresh_task(void *arg) {
                 } else {
                     ESP_LOGD(TAG, "re-mount deferred: %s (retrying next tick)", esp_err_to_name(e));
                     replug_due = false;          /* and with it the cycle: see above */
+                    /* A failed re-mount twice means the FATFS object is registered with fs_type == 0: every
+                     * f_open/stat now returns EIO, so the UI must stop claiming the volume works. A card that is
+                     * really gone is the presence poll's case (unmount + MSC_NO_MEDIUM); a card still in the slot
+                     * is a filesystem failure and keeps MSC READY, because the medium did not go away. */
+                    if (e != ESP_ERR_INVALID_STATE) {
+                        if (!sdcard_present()) sd_gone();
+                        else fs_broken();
+                    }
                 }
             }
 
@@ -464,8 +524,22 @@ static void refresh_task(void *arg) {
         if ((int32_t)(now - next_sd) >= 0) {
             next_sd = now + SD_POLL_MS;
             if (s_sd_ok) {
-                if (sdcard_present()) missed = 0;
-                else if (++missed >= 2) {            /* one failed status poll is not a removal */
+                if (sdcard_present()) {
+                    missed = 0;
+                    /* A card swapped inside one poll interval reads as present, so the presence test alone would
+                     * keep a FATFS object whose geometry belongs to the previous card (vol_status() cannot see a
+                     * swap either: it never does I/O). The CID serial is free to read on the card object already
+                     * in hand, so compare it and treat a different card as a removal + insert. */
+                    uint32_t ser;
+                    sdcard_lock();
+                    ser = sdcard_serial();
+                    sdcard_unlock();
+                    if (ser && s_serial && ser != s_serial) {
+                        ESP_LOGW(TAG, "a different card is in the slot (serial %08lx, was %08lx)",
+                                 (unsigned long)ser, (unsigned long)s_serial);
+                        sd_gone();
+                    }
+                } else if (++missed >= 2) {          /* one failed status poll is not a removal */
                     missed = 0;
                     sd_gone();
                 }

@@ -24,6 +24,11 @@ unsigned lcd_view_diff(const lcd_shown_t *shown, const lcd_view_t *want) {
     if (shown->v.bars != want->bars) {
         r |= LCD_R_BARS;
     }
+    /* The password is a status-line word: it replaces the link word and "Err" while setup mode lasts, so a new
+     * value (or leaving setup mode) must repaint the row even though no boolean changed. */
+    if (strcmp(shown->v.ap_pw, want->ap_pw) != 0) {
+        r |= LCD_R_STATUS;
+    }
     if (shown->v.connected != want->connected ||
         shown->v.connecting != want->connecting ||
         shown->v.error != want->error ||
@@ -49,6 +54,15 @@ int lcd_view_words(const lcd_view_t *v, const char **words, int max) {
 
     if (!words || max <= 0) {
         return 0;
+    }
+
+    /* Setup mode: the AP password is the only thing that matters on that screen, and it wins over the link
+     * word, "Err" and the padlock (there is no card work and no user password there). Two words with the colon
+     * attached, so the painter can shrink the gap between them if it must; the digits are never cut. */
+    if (v && v->ap_pw[0]) {
+        words[n++] = "PW:";
+        if (n < max) words[n++] = v->ap_pw;
+        return n;
     }
 
     /* "Connecting" is the default, pre-Wi-Fi state: an all-false view is not

@@ -46,6 +46,7 @@
 typedef struct {
     char ip[16];        /* "" when there is no address */
     char ssid[33];      /* UTF-8 as reported by the driver */
+    char ap_pw[9];      /* setup AP password (8 digits): only while NET_SETUP, "" otherwise */
     int  bars;          /* 0..4; -1 = draw no bars (setup mode) */
     bool connected, connecting, error, locked;
 } lcd_view_t;
@@ -62,9 +63,16 @@ enum { LCD_R_IP = 1, LCD_R_SSID = 2, LCD_R_BARS = 4, LCD_R_STATUS = 8, LCD_R_QR 
  * than leave a stale one on the glass. */
 unsigned lcd_view_diff(const lcd_shown_t *shown, const lcd_view_t *want);
 
-/* The status words in draw order: the link word always, then "Err" when the
- * error flag is set.  locked is a flag for the caller, never a word.  Writes at
- * most max pointers and returns the count written (0 when max <= 0). */
+/* The status words in draw order.  Normally: the link word always, then "Err" when the
+ * error flag is set; locked is a flag for the caller, never a word.
+ *
+ * Setup mode is the exception: when ap_pw is set (NET_SETUP only), the words are
+ * {"PW:", ap_pw} -- the password is the only thing that matters on that screen
+ * (there is no link to report, no card work and no user password), so it wins over
+ * connected/error/locked.  Never cut the digits: a truncated password is unusable.
+ * The painter's two-word fit path shrinks the glyph gap and then the word gap.
+ *
+ * Writes at most max pointers and returns the count written (0 when max <= 0). */
 int lcd_view_words(const lcd_view_t *v, const char **words, int max);
 
 /* RSSI in dBm -> 0..4 bars.  A link that is not connected, or an RSSI of 0

@@ -66,6 +66,7 @@
  "banner.hidden": "{n} items are not shown to the machine.",
  "banner.no_clock": "The clock is not set yet. File dates may be wrong.",
  "banner.fat32": "Only FAT32 is supported. Please format the SD card as FAT32.",
+ "banner.fs_broken": "The card could not be mounted again. Remove it and insert it again; if it keeps happening, check the card.",
  "banner.volume_low": "Less than 512 MB is free. Delete files to save another design.",
  "banner.setup_applied": "The setup file was applied.",
  "settings.title": "General",

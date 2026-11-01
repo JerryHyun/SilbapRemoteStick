@@ -92,6 +92,9 @@ function renderBanners() {
   while (box.firstChild) box.removeChild(box.firstChild);
   if (!ST) return;
   if (!ST.sd_ok) banner(box, t('banner.fat32'));
+  /* The card is in the slot but the volume is not usable: a re-mount failed and every file operation would
+   * return an I/O error. Say so instead of showing an empty list as if the card were blank. */
+  if (ST.sd_ok && !ST.fs_ok) banner(box, t('banner.fs_broken'));
   if (ST.sd_ok && ST.total_kb > 0 && ST.free_kb * 1024 < VOLUME_LOW_FREE_BYTES) banner(box, t('banner.volume_low'));
   if (setupAppliedOnce) banner(box, t('banner.setup_applied'));
   if (ST.low_power) banner(box, t('banner.low_power'));
